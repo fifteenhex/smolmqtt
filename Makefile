@@ -8,9 +8,30 @@ PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub
 
 all: $(PROGS)
 
+# The usual libc build.
 $(PROGS): %: %.c $(HDR)
 	$(CC) $(COPTS) -o $@ $<
 
+# Fully static nolibc build: pass NOLIBCDIR (your nolibc, e.g.
+# tools/include/nolibc in the linux source) and NOLIBCEXTDIR (a checkout of
+# nolibc-extensions, which carries the sockets nolibc lacks).
+ifdef NOLIBCDIR
+ifndef NOLIBCEXTDIR
+$(warning Please also pass NOLIBCEXTDIR with the path to your nolibc-extensions checkout for static targets)
+else
+NOLIBC_PROGS := $(addsuffix _nolibc,$(PROGS))
+all: $(NOLIBC_PROGS)
+
+NOLIBC_INC = -include $(NOLIBCDIR)/nolibc.h \
+	     -include $(NOLIBCEXTDIR)/include/nolibc-extensions.h
+
+$(NOLIBC_PROGS): %_nolibc: %.c $(HDR)
+	$(CC) -nostdlib $(NOLIBC_INC) $(COPTS) -static -o $@ $< -lgcc
+endif
+else
+$(warning Pass NOLIBCDIR and NOLIBCEXTDIR to also build static nolibc binaries)
+endif
+
 .PHONY: clean
 clean:
-	rm -f $(PROGS)
+	rm -f $(PROGS) $(addsuffix _nolibc,$(PROGS))
