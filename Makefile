@@ -27,6 +27,17 @@ NOLIBC_INC = -include $(NOLIBCDIR)/nolibc.h \
 
 $(NOLIBC_PROGS): %_nolibc: %.c $(HDR)
 	$(CC) -nostdlib $(NOLIBC_INC) $(COPTS) -static -o $@ $< -lgcc
+
+# A rootfs tarball of the static binaries (installed as /bin/smolmqtt_*), built
+# with tarwak. Pass TARWAK=<path to the tarwak binary>.
+ifdef TARWAK
+all: smolmqtt.tar
+
+smolmqtt.tar: rootfs.tarwak.json $(NOLIBC_PROGS)
+	$(TARWAK) -i rootfs.tarwak.json -o $@ -b ./ -p "%s_nolibc"
+else
+$(warning Pass TARWAK=<path to tarwak> to also build the smolmqtt.tar rootfs)
+endif
 endif
 else
 $(warning Pass NOLIBCDIR and NOLIBCEXTDIR to also build static nolibc binaries)
@@ -34,4 +45,4 @@ endif
 
 .PHONY: clean
 clean:
-	rm -f $(PROGS) $(addsuffix _nolibc,$(PROGS))
+	rm -f $(PROGS) $(addsuffix _nolibc,$(PROGS)) smolmqtt.tar

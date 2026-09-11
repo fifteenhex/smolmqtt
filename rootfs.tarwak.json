@@ -1,0 +1,18 @@
+{
+	"root": {
+		"entities": {
+			"bin": {
+				"type": "dir",
+				"mode": "0555",
+				"defaults": {
+					"mode": "0555"
+				},
+				"entities": {
+					"smolmqtt_pub": { },
+					"smolmqtt_sub": { },
+					"smolmqtt_test": { }
+				}
+			}
+		}
+	}
+}
