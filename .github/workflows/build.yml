@@ -1,0 +1,24 @@
+name: build
+
+on: [push]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start a local MQTT broker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mosquitto
+          printf 'listener 1883\nallow_anonymous true\n' | sudo tee /etc/mosquitto/conf.d/ci.conf
+          sudo systemctl restart mosquitto
+          sleep 1
+
+      - name: Build
+        run: make
+
+      - name: Roundtrip test against the local broker
+        run: ./smolmqtt_test 127.0.0.1
