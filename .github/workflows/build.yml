@@ -22,3 +22,41 @@ jobs:
 
       - name: Roundtrip test against the local broker
         run: ./smolmqtt_test 127.0.0.1
+
+  tarball:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential meson ninja-build \
+            libarchive-dev libcjson-dev libcap-dev
+
+      - name: Build tarwak
+        run: |
+          git clone --depth 1 https://github.com/fifteenhex/tarwak.git
+          cd tarwak && meson setup build && meson compile -C build
+
+      - name: Fetch nolibc and nolibc-extensions
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse --branch v7.2 \
+            https://github.com/torvalds/linux.git
+          git -C linux sparse-checkout set tools/include/nolibc
+          git clone --depth 1 https://github.com/fifteenhex/nolibc-extensions.git
+
+      - name: Build the rootfs tarball
+        run: |
+          make NOLIBCDIR="$PWD/linux/tools/include/nolibc" \
+               NOLIBCEXTDIR="$PWD/nolibc-extensions" \
+               TARWAK="$PWD/tarwak/build/tarwak" \
+               smolmqtt.tar
+          tar tvf smolmqtt.tar
+
+      - name: Upload the tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: smolmqtt-rootfs
+          path: smolmqtt.tar
