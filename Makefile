@@ -4,7 +4,7 @@ COPTS = -ggdb -std=c99 -Os
 #	-Wextra \
 
 HDR   := smolmqtt.h
-PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub
+PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub serial2mqtt
 
 all: $(PROGS)
 
