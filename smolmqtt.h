@@ -360,4 +360,124 @@ static inline int smolmqtt_publish(struct smolmqtt *m, const char *topic,
 	return 0;
 }
 
+/* Subscribe to one topic filter; blocks for the SUBACK */
+static inline int smolmqtt_subscribe(struct smolmqtt *m, const char *topic,
+				     uint8_t qos)
+{
+	uint16_t topic_len = __smolmqtt_strlen(topic);
+	uint8_t hdr[5];
+	uint8_t vh[256];
+	uint8_t *p = vh;
+	uint16_t packet_id;
+	uint8_t suback[5];
+	int nrem, ret;
+
+	packet_id = m->next_packet_id++;
+	if (!m->next_packet_id)
+		m->next_packet_id = 1;
+
+	p = __smolmqtt_put_u16(p, packet_id);
+	p = __smolmqtt_put_str(p, topic, topic_len);
+	*p++ = qos;
+
+	/* SUBSCRIBE is one of the types with mandatory flags 0b0010 */
+	hdr[0] = SMOLMQTT_PKT_SUBSCRIBE | 0x02;
+	nrem = __smolmqtt_encode_len((uint32_t) (p - vh), hdr + 1);
+
+	if (__smolmqtt_write_all(m, hdr, 1 + nrem) ||
+	    __smolmqtt_write_all(m, vh, (size_t) (p - vh)))
+		return -SMOLMQTT_ERR_IO;
+
+	ret = __smolmqtt_read_all(m, suback, sizeof(suback));
+	if (ret)
+		return ret;
+
+	if (suback[0] != SMOLMQTT_PKT_SUBACK ||
+	    ((suback[2] << 8) | suback[3]) != packet_id)
+		return -SMOLMQTT_ERR_PROTO;
+	if (suback[4] & 0x80)
+		return -SMOLMQTT_ERR_REFUSED;
+
+	__smolmqtt_debug("subscribed to '%s' (granted qos %u)\n", topic,
+			 suback[4]);
+	return 0;
+}
+
+/*
+ * Read one control packet; if it is a PUBLISH, hand it to cb. Blocks until a
+ * packet arrives. Other packet types are consumed and ignored.
+ */
+static inline int smolmqtt_poll(struct smolmqtt *m, smolmqtt_message_cb cb,
+				void *priv)
+{
+	uint8_t fixed;
+	uint32_t remlen;
+	uint8_t buf[SMOLMQTT_RXBUF_SZ];
+	int ret;
+
+	ret = __smolmqtt_read_all(m, &fixed, 1);
+	if (ret)
+		return ret;
+
+	ret = __smolmqtt_read_len(m, &remlen);
+	if (ret)
+		return ret;
+
+	if (remlen > sizeof(buf))
+		return -SMOLMQTT_ERR_TOOBIG;
+
+	if (remlen) {
+		ret = __smolmqtt_read_all(m, buf, remlen);
+		if (ret)
+			return ret;
+	}
+
+	if ((fixed & 0xf0) == SMOLMQTT_PKT_PUBLISH) {
+		struct smolmqtt_message msg = { 0 };
+		uint8_t qos = (fixed >> SMOLMQTT_PUB_QOS_SHIFT) & 0x03;
+		uint32_t off;
+		uint16_t tlen;
+
+		if (remlen < 2)
+			return -SMOLMQTT_ERR_PROTO;
+
+		tlen = (uint16_t) ((buf[0] << 8) | buf[1]);
+		off = 2 + tlen;
+		if (off > remlen)
+			return -SMOLMQTT_ERR_PROTO;
+
+		msg.topic = (const char *) (buf + 2);
+		msg.topic_len = tlen;
+		msg.qos = qos;
+		msg.retain = fixed & SMOLMQTT_PUB_RETAIN;
+
+		if (qos > 0) {
+			uint16_t pid;
+
+			if (off + 2 > remlen)
+				return -SMOLMQTT_ERR_PROTO;
+			pid = (uint16_t) ((buf[off] << 8) | buf[off + 1]);
+			off += 2;
+
+			if (qos == 1) {
+				uint8_t ack[4] = {
+					SMOLMQTT_PKT_PUBACK, 0x02,
+					(uint8_t) (pid >> 8), (uint8_t) pid
+				};
+
+				if (__smolmqtt_write_all(m, ack, sizeof(ack)))
+					return -SMOLMQTT_ERR_IO;
+			}
+		}
+
+		msg.payload = buf + off;
+		msg.payload_len = remlen - off;
+
+		if (cb)
+			cb(m, &msg, priv);
+	}
+
+	return 0;
+}
+
 #endif /* _SMOLMQTT_H */
