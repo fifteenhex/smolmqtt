@@ -1,0 +1,10 @@
+*.o
+/smolmqtt_test
+/smolmqtt_pub
+/smolmqtt_sub
+/smolmqtt_test_nolibc
+/smolmqtt_pub_nolibc
+/smolmqtt_sub_nolibc
+/smolmqtt.tar
+/serial2mqtt
+/serial2mqtt_nolibc
