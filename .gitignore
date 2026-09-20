@@ -1,0 +1,4 @@
+*.o
+/smolmqtt_test
+/smolmqtt_pub
+/smolmqtt_sub

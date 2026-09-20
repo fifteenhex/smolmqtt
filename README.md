@@ -29,3 +29,15 @@ smolmqtt_disconnect(&m);
 ```
 
 Everything is `static inline`; include it in one translation unit.
+
+## Programs
+
+- `smolmqtt_test [broker_ip]` -- subscribes to a unique topic, publishes
+  to it and confirms the message comes back, plus a QoS 1 PUBACK check.
+- `smolmqtt_pub <broker_ip> <topic> <message>`
+- `smolmqtt_sub <broker_ip> <topic>`
+
+```
+make
+./smolmqtt_test 192.168.3.2
+```
