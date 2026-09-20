@@ -37,15 +37,24 @@ Everything is `static inline`; include it in one translation unit.
   to it and confirms the message comes back, plus a QoS 1 PUBACK check.
 - `smolmqtt_pub <broker_ip> <topic> <message>`
 - `smolmqtt_sub <broker_ip> <topic>`
-- `serial2mqtt [-b baud] [-c 8N1] [-m ascii|data] <serial> <broker_ip> <topic>`
-  -- bridges a serial port to MQTT: bytes from the port go to `<topic>/rx`,
-  messages on `<topic>/tx` go to the port. `data` mode base64-encodes each
-  way so arbitrary binary survives.
+- `serial2mqtt [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data] <serial>
+  <broker_ip> <topic>` -- bridges a serial port to MQTT: bytes from the
+  port go to `<topic>/rx`, messages on `<topic>/tx` go to the port. `data`
+  mode base64-encodes each way so arbitrary binary survives. `-f dtr`
+  honours the DTR/DSR handshake, for devices that hold the line low to say
+  "stop sending".
 
 ```
 make
 ./smolmqtt_test 192.168.3.2
 ```
+
+## DTR/DSR flow control
+
+Linux termios only does RTS/CTS, so `-f dtr` is by hand: with a null modem
+the far end's DTR arrives on our DSR, and `serial2mqtt` waits for it before
+each few bytes. Off by default, since a device that never drives DTR would
+stall every write until the timeout.
 
 ## Static nolibc build
 
