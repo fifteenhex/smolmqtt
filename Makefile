@@ -4,7 +4,7 @@ COPTS = -ggdb -std=c99 -Os
 # use, so a static build buries anything of ours in -Wunused-function.
 
 HDR   := smolmqtt.h
-PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub
+PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub serial2mqtt
 
 all: $(PROGS)
 

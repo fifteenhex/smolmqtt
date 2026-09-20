@@ -10,7 +10,8 @@
 				"entities": {
 					"smolmqtt_pub": { },
 					"smolmqtt_sub": { },
-					"smolmqtt_test": { }
+					"smolmqtt_test": { },
+					"serial2mqtt": { }
 				}
 			}
 		}
