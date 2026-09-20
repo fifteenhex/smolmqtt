@@ -53,3 +53,13 @@ make NOLIBCDIR=/path/to/nolibc NOLIBCEXTDIR=/path/to/nolibc-extensions
 ```
 
 builds `smolmqtt_{test,pub,sub}_nolibc` as fully static binaries.
+
+## Rootfs tarball
+
+`rootfs.tarwak.json` lays the static binaries out under `/bin`. Build the
+tarball with [tarwak](https://github.com/fifteenhex/tarwak):
+
+```
+make NOLIBCDIR=/path/to/nolibc NOLIBCEXTDIR=/path/to/nolibc-extensions \
+     TARWAK=/path/to/tarwak smolmqtt.tar
+```
