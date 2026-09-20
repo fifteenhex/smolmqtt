@@ -312,4 +312,52 @@ static inline void smolmqtt_disconnect(struct smolmqtt *m)
 	}
 }
 
+/* qos 0 or 1; qos 1 blocks for the PUBACK */
+static inline int smolmqtt_publish(struct smolmqtt *m, const char *topic,
+				   const void *payload, uint32_t payload_len,
+				   uint8_t qos, bool retain)
+{
+	uint16_t topic_len = __smolmqtt_strlen(topic);
+	uint8_t hdr[5];
+	uint8_t vh[256];
+	uint8_t *p = vh;
+	uint16_t packet_id = 0;
+	uint32_t varlen;
+	int nrem, ret;
+
+	p = __smolmqtt_put_str(p, topic, topic_len);
+	if (qos) {
+		packet_id = m->next_packet_id++;
+		if (!m->next_packet_id)
+			m->next_packet_id = 1;
+		p = __smolmqtt_put_u16(p, packet_id);
+	}
+
+	varlen = (uint32_t) (p - vh) + payload_len;
+
+	hdr[0] = SMOLMQTT_PKT_PUBLISH | (uint8_t) (qos << SMOLMQTT_PUB_QOS_SHIFT)
+	       | (retain ? SMOLMQTT_PUB_RETAIN : 0);
+	nrem = __smolmqtt_encode_len(varlen, hdr + 1);
+
+	if (__smolmqtt_write_all(m, hdr, 1 + nrem) ||
+	    __smolmqtt_write_all(m, vh, (size_t) (p - vh)) ||
+	    __smolmqtt_write_all(m, payload, payload_len))
+		return -SMOLMQTT_ERR_IO;
+
+	if (qos == 1) {
+		uint8_t puback[4];
+
+		ret = __smolmqtt_read_all(m, puback, sizeof(puback));
+		if (ret)
+			return ret;
+		if (puback[0] != SMOLMQTT_PKT_PUBACK ||
+		    ((puback[2] << 8) | puback[3]) != packet_id)
+			return -SMOLMQTT_ERR_PROTO;
+	}
+
+	__smolmqtt_debug("published %u bytes to '%s' (qos %u)\n", payload_len,
+			 topic, qos);
+	return 0;
+}
+
 #endif /* _SMOLMQTT_H */
