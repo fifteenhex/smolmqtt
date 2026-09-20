@@ -480,4 +480,22 @@ static inline int smolmqtt_poll(struct smolmqtt *m, smolmqtt_message_cb cb,
 	return 0;
 }
 
+static inline int smolmqtt_ping(struct smolmqtt *m)
+{
+	uint8_t req[2] = { SMOLMQTT_PKT_PINGREQ, 0x00 };
+	uint8_t resp[2];
+	int ret;
+
+	if (__smolmqtt_write_all(m, req, sizeof(req)))
+		return -SMOLMQTT_ERR_IO;
+
+	ret = __smolmqtt_read_all(m, resp, sizeof(resp));
+	if (ret)
+		return ret;
+	if (resp[0] != SMOLMQTT_PKT_PINGRESP)
+		return -SMOLMQTT_ERR_PROTO;
+
+	return 0;
+}
+
 #endif /* _SMOLMQTT_H */
