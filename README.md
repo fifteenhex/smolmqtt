@@ -1,6 +1,7 @@
 # smolmqtt
 
-A single-header MQTT 3.1.1 client. One header, no dependencies.
+A single-header MQTT 3.1.1 client. One header, no dependencies. Builds
+against libc or as a fully static binary with nolibc + nolibc-extensions.
 
 ## What
 
@@ -41,3 +42,14 @@ Everything is `static inline`; include it in one translation unit.
 make
 ./smolmqtt_test 192.168.3.2
 ```
+
+## Static nolibc build
+
+Pass `NOLIBCDIR` (your nolibc, e.g. `tools/include/nolibc` in the linux
+source) and `NOLIBCEXTDIR` (a checkout of nolibc-extensions):
+
+```
+make NOLIBCDIR=/path/to/nolibc NOLIBCEXTDIR=/path/to/nolibc-extensions
+```
+
+builds `smolmqtt_{test,pub,sub}_nolibc` as fully static binaries.
