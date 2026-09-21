@@ -37,6 +37,15 @@ Everything is `static inline`; include it in one translation unit.
   to it and confirms the message comes back, plus a QoS 1 PUBACK check.
 - `smolmqtt_pub <broker_ip> <topic> <message>`
 - `smolmqtt_sub <broker_ip> <topic>`
+- `file2mqtt [-r] [-s maxsize] <directory> <broker_ip> <topic>` -- serve a
+  directory over MQTT: files can be pulled from it and pushed into it. `-r`
+  makes it read-only, `-s` caps a push (default 32 MiB). Names are bare, with
+  no slashes and no leading dot, so nothing outside the directory is
+  reachable. A push is written to `<name>.part` and only renamed into place
+  once its size and CRC match, so an interrupted transfer never replaces a
+  good file with a broken one.
+- `mqttfile [-t seconds] <broker_ip> <topic> list|get|put ...` -- the other
+  half: `list`, `get <remote> [local]`, `put <local> [remote]`.
 - `serial2mqtt [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data] <serial>
   <broker_ip> <topic>` -- bridges a serial port to MQTT: bytes from the
   port go to `<topic>/rx`, messages on `<topic>/tx` go to the port. `data`

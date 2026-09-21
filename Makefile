@@ -3,8 +3,8 @@ COPTS = -ggdb -std=c99 -Os
 # -Wall and -Wextra are left off: nolibc-extensions defines a lot it does not
 # use, so a static build buries anything of ours in -Wunused-function.
 
-HDR   := smolmqtt.h
-PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub serial2mqtt
+HDR   := smolmqtt.h filemqtt.h
+PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub serial2mqtt file2mqtt mqttfile
 
 all: $(PROGS)
 

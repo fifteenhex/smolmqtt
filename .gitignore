@@ -8,3 +8,7 @@
 /smolmqtt.tar
 /serial2mqtt
 /serial2mqtt_nolibc
+/file2mqtt
+/file2mqtt_nolibc
+/mqttfile
+/mqttfile_nolibc
