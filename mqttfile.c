@@ -387,12 +387,14 @@ static const char *basename_of(const char *path)
 	return last;
 }
 
-int main(int argc, char **argv)
+int main(int argc, char **argv, char **envp)
 {
 	struct client c = { 0 };
 	const char *broker, *base, *op;
 	char clientid[64];
 	int ret, opt, rc;
+
+	(void)envp;
 
 	c.timeout = 20;
 	c.fd = -1;

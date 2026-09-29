@@ -19,8 +19,6 @@
 #include "smolmqtt.h"
 
 #ifndef NOLIBC
-/* -std=c99 hides readdir_r() and friends behind a feature test macro. */
-#define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -508,7 +506,7 @@ static void usage(const char *argv0)
 	       argv0);
 }
 
-int main(int argc, char **argv)
+int main(int argc, char **argv, char **envp)
 {
 	char t_req[128], t_rsp[128], t_in[128], t_out[128], clientid[64];
 	struct bridge b = { 0 };
@@ -516,6 +514,8 @@ int main(int argc, char **argv)
 	struct ctx c;
 	const char *dir, *broker, *base;
 	int ret, opt;
+
+	(void)envp;
 
 	b.fd = -1;
 	b.max_size = DEFAULT_MAX_SIZE;

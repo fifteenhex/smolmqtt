@@ -35,7 +35,10 @@
 #ifndef _FILEMQTT_H
 #define _FILEMQTT_H
 
+/* nolibc has its own and the typedefs conflict */
+#ifndef NOLIBC
 #include <stdint.h>
+#endif
 
 #define FILEMQTT_CHUNK		4096	/* payload bytes per chunk	     */
 #define FILEMQTT_HDR		4	/* the big-endian chunk index	     */

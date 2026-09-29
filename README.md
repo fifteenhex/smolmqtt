@@ -53,10 +53,32 @@ Everything is `static inline`; include it in one translation unit.
   honours the DTR/DSR handshake, for devices that hold the line low to say
   "stop sending".
 
+## Building it
+
+Both builds come from `smolcommon.mk`, a copy of smolutils' one; keep the two
+in sync.
+
+`make` builds all six against the host's libc, into `<prog>.libc.elf`:
+
 ```
 make
-./smolmqtt_test 192.168.3.2
+./smolmqtt_test.libc.elf 192.168.3.2
 ```
+
+`SMOL_ARCH` adds the static nolibc build. It needs a cross prefix, nolibc and
+nolibc-extensions, plus `NOPIE=1` for a nolibc that cannot relocate itself:
+
+```
+make SMOL_ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- NOPIE=1 \
+     NOLIBCDIR=/path/to/linux/tools/include/nolibc \
+     NOLIBCEXTDIR=/path/to/nolibc-extensions
+```
+
+`SMOL_ARCH` is one of `x86_64`, `cortexa7`, `cortexa9`, `68000`, `68030`,
+`68040`, `68060`. Output is `<prog>.<arch>.elf`, stripped, with the symbols in
+`<prog>.<arch>.elf.dbg` beside it, so one tree holds several targets. Add
+`UAPIDIR=/path/to/uapi/include` when the target's kernel headers are not this
+machine's. `V=1` prints the command lines.
 
 ## DTR/DSR flow control
 
@@ -65,23 +87,16 @@ the far end's DTR arrives on our DSR, and `serial2mqtt` waits for it before
 each few bytes. Off by default, since a device that never drives DTR would
 stall every write until the timeout.
 
-## Static nolibc build
-
-Pass `NOLIBCDIR` (your nolibc, e.g. `tools/include/nolibc` in the linux
-source) and `NOLIBCEXTDIR` (a checkout of nolibc-extensions):
-
-```
-make NOLIBCDIR=/path/to/nolibc NOLIBCEXTDIR=/path/to/nolibc-extensions
-```
-
-builds `smolmqtt_{test,pub,sub}_nolibc` as fully static binaries.
-
 ## Rootfs tarball
 
-`rootfs.tarwak.json` lays the static binaries out under `/bin`. Build the
-tarball with [tarwak](https://github.com/fifteenhex/tarwak):
+`rootfs.tarwak.json` lays the static binaries out under `/bin`. Adding `TARWAK`
+to the static build above produces `smolmqtt.<arch>.tar`:
 
 ```
-make NOLIBCDIR=/path/to/nolibc NOLIBCEXTDIR=/path/to/nolibc-extensions \
-     TARWAK=/path/to/tarwak smolmqtt.tar
+make SMOL_ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- NOPIE=1 \
+     NOLIBCDIR=/path/to/linux/tools/include/nolibc \
+     NOLIBCEXTDIR=/path/to/nolibc-extensions \
+     TARWAK=/path/to/tarwak
 ```
+
+[tarwak](https://github.com/fifteenhex/tarwak) builds the tarball.

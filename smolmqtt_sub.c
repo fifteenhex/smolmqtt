@@ -35,11 +35,13 @@ static void on_msg(struct smolmqtt *m, const struct smolmqtt_message *msg,
 	printf("%s: %s\n", topic, payload);
 }
 
-int main(int argc, char **argv)
+int main(int argc, char **argv, char **envp)
 {
 	struct smolmqtt m = { 0 };
 	char clientid[64];
 	int ret;
+
+	(void)envp;
 
 	if (argc != 3) {
 		printf("usage: %s <broker_ip> <topic>\n", argv[0]);

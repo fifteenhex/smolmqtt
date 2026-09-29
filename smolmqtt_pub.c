@@ -12,11 +12,13 @@
 #include <unistd.h>
 #endif
 
-int main(int argc, char **argv)
+int main(int argc, char **argv, char **envp)
 {
 	struct smolmqtt m = { 0 };
 	char clientid[64];
 	int ret;
+
+	(void)envp;
 
 	if (argc != 4) {
 		printf("usage: %s <broker_ip> <topic> <message>\n", argv[0]);
