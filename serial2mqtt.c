@@ -263,7 +263,7 @@ static void usage(const char *argv0)
 	       argv0);
 }
 
-int main(int argc, char **argv)
+int main(int argc, char **argv, char **envp)
 {
 	struct bridge b = { .mode = MODE_ASCII };
 	struct smolmqtt m = { 0 };
@@ -273,6 +273,8 @@ int main(int argc, char **argv)
 	char topic_rx[128], topic_tx[128], clientid[64];
 	struct pollfd fds[2];
 	int ret, opt;
+
+	(void)envp;
 
 	while ((opt = getopt(argc, argv, "b:c:f:m:")) != -1) {
 		switch (opt) {

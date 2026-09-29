@@ -1,48 +1,34 @@
-COPTS = -ggdb -std=c99 -Os
+PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub serial2mqtt file2mqtt mqttfile
 
-# -Wall and -Wextra are left off: nolibc-extensions defines a lot it does not
-# use, so a static build buries anything of ours in -Wunused-function.
+HEADERS += smolmqtt.h filemqtt.h
 
-HDR   := smolmqtt.h
-PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub serial2mqtt
+LIBC_ELFS := $(addsuffix .libc.elf,$(PROGS))
 
-all: $(PROGS)
+# Ahead of the include so this is the default goal and not smolcommon.mk's
+# first target
+all: $(LIBC_ELFS)
 
-# The usual libc build.
-$(PROGS): %: %.c $(HDR)
-	$(CC) $(COPTS) -o $@ $<
+# A copy of smolutils' smolcommon.mk; keep the two in sync. SMOL_ARCH picks the
+# target and errors with what else it needs. NOPIE=1 for a nolibc that cannot
+# relocate itself.
+include smolcommon.mk
 
-# Fully static nolibc build: pass NOLIBCDIR (your nolibc, e.g.
-# tools/include/nolibc in the linux source) and NOLIBCEXTDIR (a checkout of
-# nolibc-extensions, which carries the sockets nolibc lacks).
-ifdef NOLIBCDIR
-ifndef NOLIBCEXTDIR
-$(warning Please also pass NOLIBCEXTDIR with the path to your nolibc-extensions checkout for static targets)
-else
-NOLIBC_PROGS := $(addsuffix _nolibc,$(PROGS))
-all: $(NOLIBC_PROGS)
+ifdef SMOL_ARCH
+ELFS := $(addsuffix .$(SMOL_SUFFIX).elf,$(PROGS))
+TARBALL := smolmqtt.$(SMOL_SUFFIX).tar
 
-NOLIBC_INC = -include $(NOLIBCDIR)/nolibc.h \
-	     -include $(NOLIBCEXTDIR)/include/nolibc-extensions.h
+all: $(ELFS)
 
-$(NOLIBC_PROGS): %_nolibc: %.c $(HDR)
-	$(CC) -nostdlib $(NOLIBC_INC) $(COPTS) -static -o $@ $< -lgcc
-
-# A rootfs tarball of the static binaries (installed as /bin/smolmqtt_*), built
-# with tarwak. Pass TARWAK=<path to the tarwak binary>.
+# A rootfs tarball, laid out by rootfs.tarwak.json.
 ifdef TARWAK
-all: smolmqtt.tar
+all: $(TARBALL)
 
-smolmqtt.tar: rootfs.tarwak.json $(NOLIBC_PROGS)
-	$(TARWAK) -i rootfs.tarwak.json -o $@ -b ./ -p "%s_nolibc"
-else
-$(warning Pass TARWAK=<path to tarwak> to also build the smolmqtt.tar rootfs)
+$(TARBALL): rootfs.tarwak.json $(ELFS)
+	$(MSG) TARWAK $@
+	$(Q)$(TARWAK) -i $< -o $@ -b ./ -p "%s.$(SMOL_SUFFIX).elf"
 endif
-endif
-else
-$(warning Pass NOLIBCDIR and NOLIBCEXTDIR to also build static nolibc binaries)
 endif
 
-.PHONY: clean
+.PHONY: all clean
 clean:
-	rm -f $(PROGS) $(addsuffix _nolibc,$(PROGS)) smolmqtt.tar
+	$(Q)rm -f .buildmode.* *.elf *.elf.dbg *.tar

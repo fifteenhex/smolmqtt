@@ -46,13 +46,15 @@ static void on_msg(struct smolmqtt *m, const struct smolmqtt_message *msg,
 		got_it = true;
 }
 
-int main(int argc, char **argv)
+int main(int argc, char **argv, char **envp)
 {
 	const char *broker = argc > 1 ? argv[1] : BROKER_DEFAULT;
 	struct smolmqtt m = { 0 };
 	char topic[64], clientid[64];
 	int pid = (int) getpid();
 	int ret;
+
+	(void)envp;
 
 	snprintf(clientid, sizeof(clientid), "smolmqtt-test-%d", pid);
 	snprintf(topic, sizeof(topic), "smolmqtt/selftest/%d", pid);
