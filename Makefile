@@ -1,6 +1,6 @@
 PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub serial2mqtt file2mqtt mqttfile
 
-HEADERS += smolmqtt.h filemqtt.h
+HEADERS += smolmqtt.h filemqtt.h base64.h
 
 LIBC_ELFS := $(addsuffix .libc.elf,$(PROGS))
 
