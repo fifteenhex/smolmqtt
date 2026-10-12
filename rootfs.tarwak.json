@@ -11,7 +11,8 @@
 					"smolmqtt_pub": { },
 					"smolmqtt_sub": { },
 					"smolmqtt_test": { },
-					"serial2mqtt": { }
+					"serial2mqtt": { },
+					"mqtt2pty": { }
 				}
 			}
 		}
