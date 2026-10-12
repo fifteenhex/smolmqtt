@@ -37,6 +37,15 @@ Everything is `static inline`; include it in one translation unit.
   to it and confirms the message comes back, plus a QoS 1 PUBACK check.
 - `smolmqtt_pub <broker_ip> <topic> <message>`
 - `smolmqtt_sub <broker_ip> <topic>`
+- `mqtt2pty [-m ascii|data] [-l <link>] <broker_ip> <topic>` -- the other end
+  of `serial2mqtt`: a pty on this machine that stands in for the shared port.
+  Bytes written to it go to `<topic>/tx`, messages on `<topic>/rx` come out of
+  it. It prints the pty's path (`/dev/pts/N`) and `-l` keeps a symlink at a
+  fixed name, so a tool that wants a serial device can be pointed straight
+  at it: `mqtt2pty -m data -l /tmp/clie 192.168.3.2 clielinux1 &` then
+  `smallrom -d /tmp/clie ...`. The mode must match the far end's. Whatever
+  the tool sets on the pty (a baud rate) is accepted and ignored; the real
+  line runs at whatever `serial2mqtt` was started with.
 - `file2mqtt [-r] [-s maxsize] <directory> <broker_ip> <topic>` -- serve a
   directory over MQTT: files can be pulled from it and pushed into it. `-r`
   makes it read-only, `-s` caps a push (default 32 MiB). Names are bare, with
@@ -58,7 +67,7 @@ Everything is `static inline`; include it in one translation unit.
 Both builds come from `smolcommon.mk`, a copy of smolutils' one; keep the two
 in sync.
 
-`make` builds all six against the host's libc, into `<prog>.libc.elf`:
+`make` builds all seven against the host's libc, into `<prog>.libc.elf`:
 
 ```
 make
