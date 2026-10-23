@@ -25,6 +25,14 @@
 
 #include <asm/termbits.h>
 
+#include "config.h"
+#include "inc/printing.h"
+#include "inc/numbers.h"
+#include "inc/io.h"
+
+#define USAGE	"usage: %s [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data] " \
+		"<serial> <broker_ip> <topic>\n"
+
 #define BUF_SZ	512
 
 /* Linux termios has no DTR/DSR flow control, so it is done by hand below.
@@ -99,7 +107,7 @@ static int serial_open(const char *dev, int baud, int databits, char parity,
 		 * pty has no modem lines to raise.
 		 */
 		if (ioctl(fd, TIOCMBIS, &bits))
-			printf("cannot assert DTR/RTS on %s\n", dev);
+			error("cannot assert DTR/RTS on %s\n", dev);
 	}
 
 	return fd;
@@ -133,27 +141,17 @@ static int wait_for_dsr(int fd)
 
 static int write_all(int fd, const uint8_t *buf, uint32_t len, enum flow flow)
 {
-	uint32_t done = 0;
+	if (flow != FLOW_DTR)
+		return write_full(fd, buf, len);
 
-	while (done < len) {
-		uint32_t want = len - done;
-		ssize_t n;
+	/* A few bytes at a time, each lot once the far end says it is ready */
+	while (len) {
+		uint32_t n = len > DSR_CHUNK ? DSR_CHUNK : len;
 
-		if (flow == FLOW_DTR) {
-			if (wait_for_dsr(fd))
-				return -1;
-			if (want > DSR_CHUNK)
-				want = DSR_CHUNK;
-		}
-
-		n = write(fd, buf + done, want);
-
-		if (n > 0)
-			done += (uint32_t) n;
-		else if (n < 0 && errno == EINTR)
-			continue;
-		else
+		if (wait_for_dsr(fd) || write_full(fd, buf, n))
 			return -1;
+		buf += n;
+		len -= n;
 	}
 
 	return 0;
@@ -178,18 +176,12 @@ static void on_mqtt(struct smolmqtt *m, const struct smolmqtt_message *msg,
 		uint32_t n = b64_decode(msg->payload, msg->payload_len, out);
 
 		if (write_all(b->serial_fd, out, n, b->flow))
-			printf("write failed\n");
+			error("write failed\n");
 	} else {
 		if (write_all(b->serial_fd, msg->payload, msg->payload_len,
 			      b->flow))
-			printf("write failed\n");
+			error("write failed\n");
 	}
-}
-
-static void usage(const char *argv0)
-{
-	printf("usage: %s [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data] <serial> <broker_ip> <topic>\n",
-	       argv0);
 }
 
 int main(int argc, char **argv, char **envp)
@@ -208,14 +200,21 @@ int main(int argc, char **argv, char **envp)
 	while ((opt = getopt(argc, argv, "b:c:f:m:")) != -1) {
 		switch (opt) {
 		case 'b':
-			baud = atoi(optarg);
+			if (!parse_int_range(optarg, 10, 1, 4000000, &baud)) {
+				error("not a baud rate: %s\n", optarg);
+				return 1;
+			}
 			break;
 		case 'c':
-			if (optarg[0] && optarg[1] && optarg[2]) {
-				databits = optarg[0] - '0';
-				parity = optarg[1];
-				stopbits = optarg[2] - '0';
+			if (strlen(optarg) != 3 || optarg[0] < '5' ||
+			    optarg[0] > '8' || !strchr("NEO", optarg[1]) ||
+			    (optarg[2] != '1' && optarg[2] != '2')) {
+				error("not a framing: %s (e.g. 8N1)\n", optarg);
+				return 1;
 			}
+			databits = optarg[0] - '0';
+			parity = optarg[1];
+			stopbits = optarg[2] - '0';
 			break;
 		case 'f':
 			b.flow = optarg[0] == 'd' ? FLOW_DTR : FLOW_NONE;
@@ -224,13 +223,13 @@ int main(int argc, char **argv, char **envp)
 			b.mode = optarg[0] == 'd' ? MODE_DATA : MODE_ASCII;
 			break;
 		default:
-			usage(argv[0]);
+			usage(USAGE, argv[0]);
 			return 1;
 		}
 	}
 
 	if (argc - optind != 3) {
-		usage(argv[0]);
+		usage(USAGE, argv[0]);
 		return 1;
 	}
 	serial_dev = argv[optind];
@@ -244,19 +243,19 @@ int main(int argc, char **argv, char **envp)
 	b.serial_fd = serial_open(serial_dev, baud, databits, parity, stopbits,
 				  b.flow);
 	if (b.serial_fd < 0) {
-		printf("failed to open %s\n", serial_dev);
+		error("failed to open %s\n", serial_dev);
 		return 1;
 	}
 
 	ret = smolmqtt_connect(&m, broker, 1883, clientid);
 	if (ret) {
-		printf("connect failed: %d\n", ret);
+		error("connect failed: %d\n", ret);
 		return 1;
 	}
 
 	ret = smolmqtt_subscribe(&m, topic_tx, 0);
 	if (ret) {
-		printf("subscribe failed: %d\n", ret);
+		error("subscribe failed: %d\n", ret);
 		return 1;
 	}
 

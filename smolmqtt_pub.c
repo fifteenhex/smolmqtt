@@ -12,6 +12,11 @@
 #include <unistd.h>
 #endif
 
+#include "config.h"
+#include "inc/printing.h"
+
+#define USAGE	"usage: %s <broker_ip> <topic> <message>\n"
+
 int main(int argc, char **argv, char **envp)
 {
 	struct smolmqtt m = { 0 };
@@ -21,7 +26,7 @@ int main(int argc, char **argv, char **envp)
 	(void)envp;
 
 	if (argc != 4) {
-		printf("usage: %s <broker_ip> <topic> <message>\n", argv[0]);
+		usage(USAGE, argv[0]);
 		return 1;
 	}
 
@@ -29,13 +34,13 @@ int main(int argc, char **argv, char **envp)
 
 	ret = smolmqtt_connect(&m, argv[1], 1883, clientid);
 	if (ret) {
-		printf("connect failed: %d\n", ret);
+		error("connect failed: %d\n", ret);
 		return 1;
 	}
 
 	ret = smolmqtt_publish(&m, argv[2], argv[3], strlen(argv[3]), 1, false);
 	if (ret) {
-		printf("publish failed: %d\n", ret);
+		error("publish failed: %d\n", ret);
 		smolmqtt_disconnect(&m);
 		return 1;
 	}

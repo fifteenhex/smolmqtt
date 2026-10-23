@@ -13,6 +13,9 @@
 #include <unistd.h>
 #endif
 
+#include "config.h"
+#include "inc/printing.h"
+
 #define BROKER_DEFAULT	"192.168.3.2"
 #define BROKER_PORT	1883
 #define MESSAGE		"hello from smolmqtt"
@@ -62,7 +65,7 @@ int main(int argc, char **argv, char **envp)
 	printf("connecting to %s:%d\n", broker, BROKER_PORT);
 	ret = smolmqtt_connect(&m, broker, BROKER_PORT, clientid);
 	if (ret) {
-		printf("connect failed: %d\n", ret);
+		error("connect failed: %d\n", ret);
 		return 1;
 	}
 
@@ -74,26 +77,26 @@ int main(int argc, char **argv, char **envp)
 	 */
 	ret = smolmqtt_subscribe(&m, topic, 0);
 	if (ret) {
-		printf("subscribe failed: %d\n", ret);
+		error("subscribe failed: %d\n", ret);
 		return 1;
 	}
 	printf("subscribed to %s\n", topic);
 
 	ret = smolmqtt_publish(&m, topic, MESSAGE, strlen(MESSAGE), 0, false);
 	if (ret) {
-		printf("publish failed: %d\n", ret);
+		error("publish failed: %d\n", ret);
 		return 1;
 	}
 	printf("published, waiting for it to come back...\n");
 
 	ret = smolmqtt_poll(&m, on_msg, NULL);
 	if (ret) {
-		printf("poll failed: %d\n", ret);
+		error("poll failed: %d\n", ret);
 		return 1;
 	}
 
 	if (!got_it) {
-		printf("ROUNDTRIP FAILED (message not received)\n");
+		error("ROUNDTRIP FAILED (message not received)\n");
 		smolmqtt_disconnect(&m);
 		return 1;
 	}
@@ -101,7 +104,7 @@ int main(int argc, char **argv, char **envp)
 	snprintf(topic, sizeof(topic), "smolmqtt/selftest/%d/qos1", pid);
 	ret = smolmqtt_publish(&m, topic, "qos1", 4, 1, false);
 	if (ret) {
-		printf("qos1 publish/PUBACK failed: %d\n", ret);
+		error("qos1 publish/PUBACK failed: %d\n", ret);
 		smolmqtt_disconnect(&m);
 		return 1;
 	}
