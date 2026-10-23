@@ -12,7 +12,8 @@
 					"smolmqtt_sub": { },
 					"smolmqtt_test": { },
 					"serial2mqtt": { },
-					"mqtt2pty": { }
+					"mqtt2pty": { },
+					"file2mqtt": { }
 				}
 			}
 		}
