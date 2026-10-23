@@ -6,9 +6,9 @@
  *	file2mqtt [-r] [-s maxsize] <directory> <broker_ip> <topic>
  *
  * -r makes it read-only (pulls work, pushes are refused) and -s caps the size
- * of a push in bytes (default 32 MiB).  Files are addressed by bare name; any
- * name containing a slash, or starting with a dot, is refused, so nothing
- * outside <directory> can be reached.
+ * of a push, in bytes or with a K, M or G on the end (default 32M).  Files
+ * are addressed by bare name; any name containing a slash, or starting with
+ * a dot, is refused, so nothing outside <directory> can be reached.
  *
  * The protocol lives in filemqtt.h.  Nothing is buffered whole: chunks are
  * written straight to <name>.part at their offset, and the finished file is
@@ -32,6 +32,7 @@
 
 #include "config.h"
 #include "inc/printing.h"
+#include "inc/numbers.h"
 
 #define USAGE	"usage: %s [-r] [-s maxsize] <directory> <broker_ip> <topic>\n"
 
@@ -533,6 +534,7 @@ int main(int argc, char **argv, char **envp)
 	char t_req[128], t_rsp[128], t_in[128], t_out[128], clientid[64];
 	struct bridge b = { 0 };
 	struct smolmqtt m = { 0 };
+	unsigned long long max_size;
 	struct ctx c;
 	const char *dir, *broker, *base;
 	int ret, opt;
@@ -553,7 +555,12 @@ int main(int argc, char **argv, char **envp)
 			b.read_only = 1;
 			break;
 		case 's':
-			b.max_size = (uint32_t) atoi(optarg);
+			if (!parse_size(optarg, &max_size) || !max_size ||
+			    max_size > UINT32_MAX) {
+				error("not a size: %s\n", optarg);
+				return 1;
+			}
+			b.max_size = max_size;
 			break;
 		default:
 			usage(USAGE, argv[0]);

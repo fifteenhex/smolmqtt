@@ -48,11 +48,11 @@ Everything is `static inline`; include it in one translation unit.
   line runs at whatever `serial2mqtt` was started with.
 - `file2mqtt [-r] [-s maxsize] <directory> <broker_ip> <topic>` -- serve a
   directory over MQTT: files can be pulled from it and pushed into it. `-r`
-  makes it read-only, `-s` caps a push (default 32 MiB). Names are bare, with
-  no slashes and no leading dot, so nothing outside the directory is
-  reachable. A push is written to `<name>.part` and only renamed into place
-  once its size and CRC match, so an interrupted transfer never replaces a
-  good file with a broken one.
+  makes it read-only, `-s` caps a push, in bytes or with a K, M or G suffix
+  (default 32M). Names are bare, with no slashes and no leading dot, so
+  nothing outside the directory is reachable. A push is written to
+  `<name>.part` and only renamed into place once its size and CRC match, so
+  an interrupted transfer never replaces a good file with a broken one.
 - `mqttfile [-t seconds] [-d usec] <broker_ip> <topic> list|get|put ...` --
   the other half: `list`, `get <remote> [local]`, `put <local> [remote]`. `-d`
   paces the chunks of a push, in microseconds (default 300).

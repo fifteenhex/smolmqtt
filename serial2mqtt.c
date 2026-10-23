@@ -27,6 +27,7 @@
 
 #include "config.h"
 #include "inc/printing.h"
+#include "inc/numbers.h"
 
 #define USAGE	"usage: %s [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data] " \
 		"<serial> <broker_ip> <topic>\n"
@@ -208,14 +209,21 @@ int main(int argc, char **argv, char **envp)
 	while ((opt = getopt(argc, argv, "b:c:f:m:")) != -1) {
 		switch (opt) {
 		case 'b':
-			baud = atoi(optarg);
+			if (!parse_int_range(optarg, 10, 1, 4000000, &baud)) {
+				error("not a baud rate: %s\n", optarg);
+				return 1;
+			}
 			break;
 		case 'c':
-			if (optarg[0] && optarg[1] && optarg[2]) {
-				databits = optarg[0] - '0';
-				parity = optarg[1];
-				stopbits = optarg[2] - '0';
+			if (strlen(optarg) != 3 || optarg[0] < '5' ||
+			    optarg[0] > '8' || !strchr("NEO", optarg[1]) ||
+			    (optarg[2] != '1' && optarg[2] != '2')) {
+				error("not a framing: %s (e.g. 8N1)\n", optarg);
+				return 1;
 			}
+			databits = optarg[0] - '0';
+			parity = optarg[1];
+			stopbits = optarg[2] - '0';
 			break;
 		case 'f':
 			b.flow = optarg[0] == 'd' ? FLOW_DTR : FLOW_NONE;

@@ -33,6 +33,7 @@
 
 #include "config.h"
 #include "inc/printing.h"
+#include "inc/numbers.h"
 
 #define USAGE	"usage: %s [-t seconds] [-d usec] <broker_ip> <topic> <op>\n" \
 		"       list\n" \
@@ -440,10 +441,17 @@ int main(int argc, char **argv, char **envp)
 	while ((opt = getopt(argc, argv, "t:d:")) != -1) {
 		switch (opt) {
 		case 't':
-			c.timeout = atoi(optarg);
+			if (!parse_int_range(optarg, 10, 1, 3600, &c.timeout)) {
+				error("not a timeout: %s\n", optarg);
+				return 1;
+			}
 			break;
 		case 'd':
-			put_delay_us = (unsigned long) atoi(optarg);
+			if (!parse_ul_range(optarg, 10, 0, 1000000,
+					    &put_delay_us)) {
+				error("not a delay: %s\n", optarg);
+				return 1;
+			}
 			break;
 		default:
 			usage(USAGE, argv[0]);
