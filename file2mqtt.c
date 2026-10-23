@@ -65,7 +65,7 @@ struct bridge {
 	/* the push in progress, if any */
 	int fd;
 	char name[FILEMQTT_NAME_MAX];
-	char part[FILEMQTT_NAME_MAX + 8];
+	char part[FILEMQTT_LINE];
 	uint32_t size;
 	uint32_t crc;
 	uint32_t chunks;
