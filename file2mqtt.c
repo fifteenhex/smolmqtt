@@ -27,6 +27,7 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <errno.h>
 #endif
 
 #define DEFAULT_MAX_SIZE	(32u * 1024 * 1024)
@@ -63,6 +64,7 @@ struct bridge {
 	uint32_t crc;
 	uint32_t chunks;
 	uint8_t *map;
+	int werr;			/* errno of the first failed write */
 };
 
 static void say(struct bridge *b, const char *s)
@@ -167,6 +169,7 @@ static void push_done(struct bridge *b, int keep_part)
 	b->part[0] = 0;
 	b->size = 0;
 	b->chunks = 0;
+	b->werr = 0;
 	if (b->map) {
 		free(b->map);
 		b->map = NULL;
@@ -330,6 +333,11 @@ static void cmd_missing(struct bridge *b)
 		return;
 	}
 
+	if (b->werr) {
+		sayf(b, "err cannot write the chunks: %s", strerror(b->werr));
+		return;
+	}
+
 	for (i = 0; i < 8 && i < sizeof(out); i++)
 		out[o++] = "missing "[i];
 
@@ -366,6 +374,11 @@ static void cmd_end(struct bridge *b)
 
 	if (b->fd < 0) {
 		say(b, "err no transfer in progress");
+		return;
+	}
+
+	if (b->werr) {
+		sayf(b, "err cannot write the chunks: %s", strerror(b->werr));
 		return;
 	}
 
@@ -471,10 +484,20 @@ static void on_chunk(struct bridge *b, const uint8_t *payload, uint32_t len)
 		return;
 
 	off = (off_t) idx * FILEMQTT_CHUNK;
-	if (lseek(b->fd, off, SEEK_SET) < 0)
+	if (lseek(b->fd, off, SEEK_SET) < 0) {
+		if (!b->werr)
+			b->werr = errno ? errno : EIO;
 		return;
-	if (write(b->fd, payload + FILEMQTT_HDR, n) != (ssize_t) n)
+	}
+	if (write(b->fd, payload + FILEMQTT_HDR, n) != (ssize_t) n) {
+		/*
+		 * Keep the errno: a chunk that cannot be written otherwise
+		 * looks like a lost one and is resent for ever.
+		 */
+		if (!b->werr)
+			b->werr = errno ? errno : EIO;
 		return;
+	}
 
 	filemqtt_bit_set(b->map, idx);
 }
