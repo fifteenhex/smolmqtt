@@ -53,8 +53,9 @@ Everything is `static inline`; include it in one translation unit.
   reachable. A push is written to `<name>.part` and only renamed into place
   once its size and CRC match, so an interrupted transfer never replaces a
   good file with a broken one.
-- `mqttfile [-t seconds] <broker_ip> <topic> list|get|put ...` -- the other
-  half: `list`, `get <remote> [local]`, `put <local> [remote]`.
+- `mqttfile [-t seconds] [-d usec] <broker_ip> <topic> list|get|put ...` --
+  the other half: `list`, `get <remote> [local]`, `put <local> [remote]`. `-d`
+  paces the chunks of a push, in microseconds (default 300).
 - `serial2mqtt [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data] <serial>
   <broker_ip> <topic>` -- bridges a serial port to MQTT: bytes from the
   port go to `<topic>/rx`, messages on `<topic>/tx` go to the port. `data`

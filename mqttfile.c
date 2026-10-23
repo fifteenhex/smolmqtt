@@ -2,9 +2,9 @@
 /*
  * The client half of file2mqtt: list, pull and push files across MQTT.
  *
- *	mqttfile [-t seconds] <broker_ip> <topic> list
- *	mqttfile [-t seconds] <broker_ip> <topic> get <remote> [local]
- *	mqttfile [-t seconds] <broker_ip> <topic> put <local> [remote]
+ *	mqttfile [-t seconds] [-d usec] <broker_ip> <topic> list
+ *	mqttfile [-t seconds] [-d usec] <broker_ip> <topic> get <remote> [local]
+ *	mqttfile [-t seconds] [-d usec] <broker_ip> <topic> put <local> [remote]
  *
  * -t is how long to wait for a reply before giving up (default 20).
  *
@@ -13,6 +13,9 @@
  * checks the CRC before putting the file in place.  A pull that comes up short
  * is simply retried whole - there is no per-chunk repair in that direction,
  * because in practice a local broker over TCP does not lose them.
+ *
+ * -d is the pause between the chunks of a push, in microseconds.  Chunks are
+ * QoS 0 and a burst can outrun the far end.
  */
 #include "filemqtt.h"
 #include "smolmqtt.h"
@@ -25,9 +28,27 @@
 #include <getopt.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <time.h>
 #endif
 
 #define GET_RETRIES	3
+
+/* Default pause between chunks; at 4 KiB a chunk still megabytes a second */
+#define PUT_DELAY_US	300
+
+static unsigned long put_delay_us = PUT_DELAY_US;
+
+static void put_pace(void)
+{
+	struct timespec ts;
+
+	if (!put_delay_us)
+		return;
+
+	ts.tv_sec  = put_delay_us / 1000000;
+	ts.tv_nsec = (put_delay_us % 1000000) * 1000;
+	nanosleep(&ts, NULL);
+}
 
 struct client {
 	struct smolmqtt m;
@@ -299,6 +320,7 @@ static int do_put(struct client *c, const char *local, const char *remote)
 			close(fd);
 			return 1;
 		}
+		put_pace();
 	}
 
 	/* ...then repair whatever did not arrive. */
@@ -359,6 +381,7 @@ static int do_put(struct client *c, const char *local, const char *remote)
 			filemqtt_put_be32(chunk, want);
 			smolmqtt_publish(&c->m, c->t_in, chunk,
 					 FILEMQTT_HDR + (uint32_t) n, 0, false);
+			put_pace();
 			resent++;
 		}
 		printf("resent %u chunk%s\n", resent, resent == 1 ? "" : "s");
@@ -379,10 +402,10 @@ static int do_put(struct client *c, const char *local, const char *remote)
 
 static void usage(const char *argv0)
 {
-	printf("usage: %s [-t seconds] <broker_ip> <topic> list\n", argv0);
-	printf("       %s [-t seconds] <broker_ip> <topic> get <remote> [local]\n",
+	printf("usage: %s [-t seconds] [-d usec] <broker_ip> <topic> list\n", argv0);
+	printf("       %s [-t seconds] [-d usec] <broker_ip> <topic> get <remote> [local]\n",
 	       argv0);
-	printf("       %s [-t seconds] <broker_ip> <topic> put <local> [remote]\n",
+	printf("       %s [-t seconds] [-d usec] <broker_ip> <topic> put <local> [remote]\n",
 	       argv0);
 }
 
@@ -411,10 +434,13 @@ int main(int argc, char **argv, char **envp)
 	c.timeout = 20;
 	c.fd = -1;
 
-	while ((opt = getopt(argc, argv, "t:")) != -1) {
+	while ((opt = getopt(argc, argv, "t:d:")) != -1) {
 		switch (opt) {
 		case 't':
 			c.timeout = atoi(optarg);
+			break;
+		case 'd':
+			put_delay_us = (unsigned long) atoi(optarg);
 			break;
 		default:
 			usage(argv[0]);
