@@ -35,10 +35,22 @@
 #ifndef _FILEMQTT_H
 #define _FILEMQTT_H
 
-/* nolibc has its own and the typedefs conflict */
 #ifndef NOLIBC
+#include <ctype.h>
+#include <endian.h>
+#include <limits.h>
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #endif
+
+#include "config.h"
+#include "inc/printing.h"
+#include "inc/numbers.h"
+#include "inc/strings.h"
+#include "inc/unaligned.h"
 
 #define FILEMQTT_CHUNK		4096	/* payload bytes per chunk	     */
 #define FILEMQTT_HDR		4	/* the big-endian chunk index	     */
@@ -53,12 +65,7 @@
 #define SMOLMQTT_RXBUF_SZ	(FILEMQTT_CHUNK + 512)
 #endif
 
-static inline uint32_t filemqtt_be32(const uint8_t *p)
-{
-	return ((uint32_t) p[0] << 24) | ((uint32_t) p[1] << 16) |
-	       ((uint32_t) p[2] << 8) | p[3];
-}
-
+/* The chunk index; inc/unaligned.h reads it but has no put_unaligned_be32() */
 static inline void filemqtt_put_be32(uint8_t *p, uint32_t v)
 {
 	p[0] = (uint8_t) (v >> 24);
@@ -108,46 +115,19 @@ static inline uint32_t filemqtt_map_bytes(uint32_t chunks)
 	return (chunks + 7) / 8;
 }
 
-/* Tiny parsers shared by both ends: the protocol is all space-separated
- * ASCII words and decimal or hex numbers.
+/* The next field of a line as a number, if there is one and it is one. The
+ * words of a line come off with smolutils' next_field().
  */
-static inline void filemqtt_word(const char **p, char *out, uint32_t out_sz)
+static inline bool filemqtt_next_number(char **p, int base, uint32_t *out)
 {
-	const char *s = *p;
-	uint32_t o = 0;
+	char *f = next_field(p);
+	unsigned long v;
 
-	while (*s == ' ')
-		s++;
-	while (*s && *s != ' ' && o < out_sz - 1)
-		out[o++] = *s++;
-	out[o] = 0;
-	*p = s;
-}
+	if (!f || !parse_ul(f, base, &v) || v > UINT32_MAX)
+		return false;
+	*out = v;
 
-static inline uint32_t filemqtt_num(const char **p, int hex)
-{
-	const char *s = *p;
-	uint32_t v = 0;
-
-	while (*s == ' ')
-		s++;
-	while (*s) {
-		int d;
-
-		if (*s >= '0' && *s <= '9')
-			d = *s - '0';
-		else if (hex && *s >= 'a' && *s <= 'f')
-			d = *s - 'a' + 10;
-		else if (hex && *s >= 'A' && *s <= 'F')
-			d = *s - 'A' + 10;
-		else
-			break;
-		v = v * (uint32_t) (hex ? 16 : 10) + (uint32_t) d;
-		s++;
-	}
-	*p = s;
-
-	return v;
+	return true;
 }
 
 #endif /* _FILEMQTT_H */

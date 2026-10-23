@@ -34,6 +34,8 @@
 #include "config.h"
 #include "inc/printing.h"
 #include "inc/numbers.h"
+#include "inc/strings.h"
+#include "inc/paths.h"
 
 #define USAGE	"usage: %s [-t seconds] [-d usec] <broker_ip> <topic> <op>\n" \
 		"       list\n" \
@@ -103,7 +105,7 @@ static void on_msg(struct smolmqtt *m, const struct smolmqtt_message *msg,
 
 		if (c->fd < 0 || msg->payload_len < FILEMQTT_HDR)
 			return;
-		idx = filemqtt_be32(msg->payload);
+		idx = get_unaligned_be32(msg->payload);
 		n = msg->payload_len - FILEMQTT_HDR;
 		if (lseek(c->fd, (off_t) idx * FILEMQTT_CHUNK, SEEK_SET) < 0)
 			return;
@@ -119,7 +121,7 @@ static void on_msg(struct smolmqtt *m, const struct smolmqtt_message *msg,
 /* Pump the connection until a /rsp message arrives, or the timeout expires.
  * Returns the line, or NULL.
  */
-static const char *wait_line(struct client *c)
+static char *wait_line(struct client *c)
 {
 	int waited = 0;
 
@@ -161,11 +163,6 @@ static void pump(struct client *c, int ms)
 	}
 }
 
-static int is_err(const char *line)
-{
-	return !strncmp(line, "err", 3);
-}
-
 /* ---- commands ----------------------------------------------------------- */
 
 static int do_list(struct client *c)
@@ -180,9 +177,9 @@ static int do_list(struct client *c)
 			return 1;
 		}
 		printf("%s\n", line);
-		if (!strncmp(line, "ok ", 3))
+		if (STARTS_WITH(line, "ok "))
 			return 0;
-		if (is_err(line))
+		if (STARTS_WITH(line, "err"))
 			return 1;
 	}
 }
@@ -195,8 +192,7 @@ static int do_get(struct client *c, const char *remote, const char *local)
 	for (attempt = 0; attempt < GET_RETRIES; attempt++) {
 		uint32_t size = 0, crc = 0, chunks = 0, mycrc = 0, total = 0;
 		uint8_t buf[FILEMQTT_CHUNK];
-		const char *line, *p;
-		char word[FILEMQTT_NAME_MAX];
+		char *line, *p;
 
 		c->fd = open(local, O_RDWR | O_CREAT | O_TRUNC, 0644);
 		if (c->fd < 0) {
@@ -218,7 +214,7 @@ static int do_get(struct client *c, const char *remote, const char *local)
 			c->fd = -1;
 			return 1;
 		}
-		if (is_err(line)) {
+		if (STARTS_WITH(line, "err")) {
 			error("%s\n", line);
 			close(c->fd);
 			c->fd = -1;
@@ -227,12 +223,17 @@ static int do_get(struct client *c, const char *remote, const char *local)
 
 		/* "ok get <name> <size> <crc> <chunks>" */
 		p = line;
-		filemqtt_word(&p, word, sizeof(word));	/* ok    */
-		filemqtt_word(&p, word, sizeof(word));	/* get   */
-		filemqtt_word(&p, word, sizeof(word));	/* name  */
-		size = filemqtt_num(&p, 0);
-		crc = filemqtt_num(&p, 1);
-		chunks = filemqtt_num(&p, 0);
+		next_field(&p);		/* ok   */
+		next_field(&p);		/* get  */
+		next_field(&p);		/* name */
+		if (!filemqtt_next_number(&p, 10, &size) ||
+		    !filemqtt_next_number(&p, 16, &crc) ||
+		    !filemqtt_next_number(&p, 10, &chunks)) {
+			error("cannot make sense of the bridge's reply\n");
+			close(c->fd);
+			c->fd = -1;
+			return 1;
+		}
 
 		/* Chunks are published before the reply, so they are almost
 		 * certainly already in the socket; give the tail a moment.
@@ -275,9 +276,9 @@ static int do_get(struct client *c, const char *remote, const char *local)
 static int do_put(struct client *c, const char *local, const char *remote)
 {
 	uint8_t chunk[FILEMQTT_HDR + FILEMQTT_CHUNK];
-	char cmd[FILEMQTT_LINE], word[FILEMQTT_NAME_MAX];
+	char cmd[FILEMQTT_LINE];
 	uint32_t size = 0, crc = 0, idx, round;
-	const char *line, *p;
+	char *line, *p, *w;
 	int fd;
 
 	fd = open(local, O_RDONLY);
@@ -303,7 +304,7 @@ static int do_put(struct client *c, const char *local, const char *remote)
 		close(fd);
 		return 1;
 	}
-	if (is_err(line)) {
+	if (STARTS_WITH(line, "err")) {
 		error("%s\n", line);
 		close(fd);
 		return 1;
@@ -343,44 +344,33 @@ static int do_put(struct client *c, const char *local, const char *remote)
 			close(fd);
 			return 1;
 		}
-		if (is_err(line)) {
+		if (STARTS_WITH(line, "err")) {
 			error("%s\n", line);
 			close(fd);
 			return 1;
 		}
 
 		p = line;
-		filemqtt_word(&p, word, sizeof(word));
-		if (strcmp(word, "missing")) {
+		w = next_field(&p);
+		if (!w || strcmp(w, "missing")) {
 			/*
 			 * Somebody else's reply: everything comes back on the
 			 * one topic, so a late one can land here. Ask again.
 			 */
 			continue;
 		}
-		/*
-		 * Peek at the next word without consuming it: it is either
-		 * "none" or the first index to resend.
-		 */
-		{
-			const char *peek = p;
 
-			filemqtt_word(&peek, word, sizeof(word));
-			if (!strcmp(word, "none"))
-				break;
-		}
+		/* "missing none", or "missing <i> <j> ..." to re-read and resend */
+		w = next_field(&p);
+		if (!w || !strcmp(w, "none"))
+			break;
 
-		/* re-walk the list, re-reading each wanted chunk */
-		for (;;) {
-			uint32_t want;
+		for (; w; w = next_field(&p)) {
+			unsigned long want;
 			ssize_t n;
 
-			while (*p == ' ')
-				p++;
-			if (*p < '0' || *p > '9')
+			if (!parse_ul(w, 10, &want) || want > UINT32_MAX)
 				break;
-			want = filemqtt_num(&p, 0);
-
 			if (lseek(fd, (off_t) want * FILEMQTT_CHUNK,
 				  SEEK_SET) < 0)
 				break;
@@ -404,26 +394,13 @@ static int do_put(struct client *c, const char *local, const char *remote)
 		error("timed out waiting for the commit\n");
 		return 1;
 	}
-	if (is_err(line)) {
+	if (STARTS_WITH(line, "err")) {
 		error("%s\n", line);
 		return 1;
 	}
 	printf("%s\n", line);
 
 	return 0;
-}
-
-static const char *basename_of(const char *path)
-{
-	const char *p = path, *last = path;
-
-	while (*p) {
-		if (*p == '/')
-			last = p + 1;
-		p++;
-	}
-
-	return last;
 }
 
 int main(int argc, char **argv, char **envp)
@@ -492,13 +469,13 @@ int main(int argc, char **argv, char **envp)
 	} else if (!strcmp(op, "get") && argc - optind >= 4) {
 		const char *remote = argv[optind + 3];
 		const char *local = argc - optind >= 5 ? argv[optind + 4] :
-				    basename_of(remote);
+				    path_basename(remote);
 
 		rc = do_get(&c, remote, local);
 	} else if (!strcmp(op, "put") && argc - optind >= 4) {
 		const char *local = argv[optind + 3];
 		const char *remote = argc - optind >= 5 ? argv[optind + 4] :
-				     basename_of(local);
+				     path_basename(local);
 
 		rc = do_put(&c, local, remote);
 	} else {

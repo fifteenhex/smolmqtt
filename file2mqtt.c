@@ -19,6 +19,7 @@
 #include "smolmqtt.h"
 
 #ifndef NOLIBC
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,26 +34,13 @@
 #include "config.h"
 #include "inc/printing.h"
 #include "inc/numbers.h"
+#include "inc/strings.h"
+#include "inc/paths.h"
+#include "inc/fs.h"
 
 #define USAGE	"usage: %s [-r] [-s maxsize] <directory> <broker_ip> <topic>\n"
 
 #define DEFAULT_MAX_SIZE	(32u * 1024 * 1024)
-
-/* nolibc has no rename(); renameat2 is the syscall behind it everywhere we
- * care about.  The libc build just uses rename().
- */
-#ifdef NOLIBC
-#ifndef AT_FDCWD
-#define AT_FDCWD	-100
-#endif
-static int file_rename(const char *from, const char *to)
-{
-	return __nolibc_syscall5(__NR_renameat2, AT_FDCWD, from, AT_FDCWD, to,
-				 0) < 0 ? -1 : 0;
-}
-#else
-#define file_rename rename
-#endif
 
 struct bridge {
 	struct smolmqtt *m;
@@ -75,89 +63,31 @@ struct bridge {
 
 static void say(struct bridge *b, const char *s)
 {
-	uint32_t n = 0;
-
-	while (s[n])
-		n++;
-	smolmqtt_publish(b->m, b->topic_rsp, s, n, 0, false);
+	smolmqtt_publish(b->m, b->topic_rsp, s, strlen(s), 0, false);
 }
 
-/* Small formatter: "%s" and "%u" only, which is all the replies need. */
 static void sayf(struct bridge *b, const char *fmt, ...)
 {
 	char out[FILEMQTT_LINE];
-	__builtin_va_list ap;
-	uint32_t o = 0;
+	va_list ap;
+	int n;
 
-	__builtin_va_start(ap, fmt);
-	while (*fmt && o < sizeof(out) - 1) {
-		if (*fmt != '%') {
-			out[o++] = *fmt++;
-			continue;
-		}
-		fmt++;
-		if (*fmt == 's') {
-			const char *s = __builtin_va_arg(ap, const char *);
+	va_start(ap, fmt);
+	n = vsnprintf(out, sizeof(out), fmt, ap);
+	va_end(ap);
+	if (n < 0)
+		return;
+	if ((size_t) n >= sizeof(out))
+		n = sizeof(out) - 1;
 
-			while (*s && o < sizeof(out) - 1)
-				out[o++] = *s++;
-		} else if (*fmt == 'u') {
-			uint32_t v = __builtin_va_arg(ap, uint32_t);
-			char tmp[12];
-			int t = 0;
-
-			do {
-				tmp[t++] = (char) ('0' + v % 10);
-				v /= 10;
-			} while (v);
-			while (t && o < sizeof(out) - 1)
-				out[o++] = tmp[--t];
-		} else if (*fmt == 'x') {
-			uint32_t v = __builtin_va_arg(ap, uint32_t);
-			int t;
-
-			for (t = 7; t >= 0 && o < sizeof(out) - 1; t--)
-				out[o++] = "0123456789abcdef"[(v >> (t * 4)) & 15];
-		} else {
-			out[o++] = *fmt;
-		}
-		fmt++;
-	}
-	__builtin_va_end(ap);
-
-	smolmqtt_publish(b->m, b->topic_rsp, out, o, 0, false);
+	smolmqtt_publish(b->m, b->topic_rsp, out, n, 0, false);
 }
 
-static int name_ok(const char *n)
+/* A bare name that stays inside the directory and fits where it is kept */
+static bool name_ok(const char *n)
 {
-	int i;
-
-	if (!n[0] || n[0] == '.')
-		return 0;
-	for (i = 0; n[i]; i++) {
-		if (i >= FILEMQTT_NAME_MAX - 1)
-			return 0;
-		if (n[i] == '/')
-			return 0;
-	}
-
-	return 1;
-}
-
-static void path_of(char *out, uint32_t out_sz, const char *dir,
-		    const char *name, const char *suffix)
-{
-	uint32_t o = 0;
-
-	while (*dir && o < out_sz - 1)
-		out[o++] = *dir++;
-	if (o && out[o - 1] != '/' && o < out_sz - 1)
-		out[o++] = '/';
-	while (*name && o < out_sz - 1)
-		out[o++] = *name++;
-	while (suffix && *suffix && o < out_sz - 1)
-		out[o++] = *suffix++;
-	out[o] = 0;
+	return n[0] && n[0] != '.' && !strchr(n, '/') &&
+	       strlen(n) < FILEMQTT_NAME_MAX;
 }
 
 /* Drop the in-progress push.  `keep_part` is set only on the success path,
@@ -189,46 +119,37 @@ static void push_reset(struct bridge *b)
 
 /* ---- commands ----------------------------------------------------------- */
 
+struct listing {
+	struct bridge *b;
+	uint32_t count;
+};
+
+static int list_one(const char *name, int dirfd, void *priv)
+{
+	struct listing *l = priv;
+	struct stat st;
+
+	if (name[0] == '.')
+		return 0;
+	if (fstatat(dirfd, name, &st, 0) || !S_ISREG(st.st_mode))
+		return 0;
+
+	sayf(l->b, "file %s %u", name, (uint32_t) st.st_size);
+	l->count++;
+
+	return 0;
+}
+
 static void cmd_list(struct bridge *b)
 {
-	uint32_t count = 0;
-	struct dirent *e;
-	DIR *d;
+	struct listing l = { .b = b };
 
-	d = opendir(b->dir);
-	if (!d) {
+	if (iterate_dir(b->dir, list_one, &l) < 0) {
 		say(b, "err cannot open directory");
 		return;
 	}
 
-	/* nolibc only has the reentrant readdir_r(); modern glibc only has
-	 * readdir().  Same loop either way.
-	 */
-	for (;;) {
-		char path[FILEMQTT_LINE];
-		struct stat st;
-#ifdef NOLIBC
-		struct dirent ent;
-
-		if (readdir_r(d, &ent, &e) || !e)
-			break;
-		e = &ent;
-#else
-		e = readdir(d);
-		if (!e)
-			break;
-#endif
-		if (e->d_name[0] == '.')
-			continue;
-		path_of(path, sizeof(path), b->dir, e->d_name, NULL);
-		if (stat(path, &st) || !S_ISREG(st.st_mode))
-			continue;
-		sayf(b, "file %s %u", e->d_name, (uint32_t) st.st_size);
-		count++;
-	}
-
-	closedir(d);
-	sayf(b, "ok list %u", count);
+	sayf(b, "ok list %u", l.count);
 }
 
 static void cmd_get(struct bridge *b, const char *name)
@@ -239,11 +160,10 @@ static void cmd_get(struct bridge *b, const char *name)
 	struct stat st;
 	int fd;
 
-	if (!name_ok(name)) {
+	if (!name_ok(name) || !path_join(path, sizeof(path), b->dir, name)) {
 		say(b, "err bad name");
 		return;
 	}
-	path_of(path, sizeof(path), b->dir, name, NULL);
 	if (stat(path, &st) || !S_ISREG(st.st_mode)) {
 		say(b, "err no such file");
 		return;
@@ -277,7 +197,7 @@ static void cmd_get(struct bridge *b, const char *name)
 	}
 
 	close(fd);
-	sayf(b, "ok get %s %u %x %u", name, total, crc, idx);
+	sayf(b, "ok get %s %u %08x %u", name, total, crc, idx);
 }
 
 static void cmd_put(struct bridge *b, const char *name, uint32_t size,
@@ -298,16 +218,13 @@ static void cmd_put(struct bridge *b, const char *name, uint32_t size,
 		return;
 	}
 
-	{
-		int i = 0;
-
-		while (name[i]) {
-			b->name[i] = name[i];
-			i++;
-		}
-		b->name[i] = 0;
+	strcpy(b->name, name);
+	if ((size_t) snprintf(b->part, sizeof(b->part), "%s/%s.part", b->dir,
+			      b->name) >= sizeof(b->part)) {
+		b->part[0] = 0;
+		say(b, "err bad name");
+		return;
 	}
-	path_of(b->part, sizeof(b->part), b->dir, b->name, ".part");
 
 	b->size = size;
 	b->crc = crc;
@@ -332,7 +249,8 @@ static void cmd_put(struct bridge *b, const char *name, uint32_t size,
 static void cmd_missing(struct bridge *b)
 {
 	char out[FILEMQTT_LINE];
-	uint32_t i, listed = 0, o = 0;
+	uint32_t i, listed = 0;
+	size_t o;
 
 	if (b->fd < 0) {
 		say(b, "err no transfer in progress");
@@ -344,23 +262,14 @@ static void cmd_missing(struct bridge *b)
 		return;
 	}
 
-	for (i = 0; i < 8 && i < sizeof(out); i++)
-		out[o++] = "missing "[i];
-
+	o = snprintf(out, sizeof(out), "missing");
 	for (i = 0; i < b->chunks && listed < FILEMQTT_MAX_MISSING; i++) {
-		char tmp[12];
-		uint32_t v = i;
-		int t = 0;
-
 		if (filemqtt_bit_get(b->map, i))
 			continue;
-		do {
-			tmp[t++] = (char) ('0' + v % 10);
-			v /= 10;
-		} while (v);
-		while (t && o < sizeof(out) - 2)
-			out[o++] = tmp[--t];
-		out[o++] = ' ';
+		/* Room for a space and the longest index */
+		if (o + 12 > sizeof(out))
+			break;
+		o += snprintf(out + o, sizeof(out) - o, " %u", i);
 		listed++;
 	}
 
@@ -410,10 +319,10 @@ static void cmd_end(struct bridge *b)
 	}
 
 	if (total != b->size || crc != b->crc) {
-		sayf(b, "err mismatch: got %u bytes crc %x, wanted %u %x",
+		sayf(b, "err mismatch: got %u bytes crc %08x, wanted %u %08x",
 		     total, crc, b->size, b->crc);
-		error("put %s FAILED: got %u/%x wanted %u/%x\n", b->name,
-		       total, crc, b->size, b->crc);
+		error("put %s FAILED: got %u/%08x wanted %u/%08x\n", b->name,
+		      total, crc, b->size, b->crc);
 		push_reset(b);
 		return;
 	}
@@ -421,15 +330,15 @@ static void cmd_end(struct bridge *b)
 	close(b->fd);
 	b->fd = -1;
 
-	path_of(path, sizeof(path), b->dir, b->name, NULL);
-	if (file_rename(b->part, path)) {
+	if (!path_join(path, sizeof(path), b->dir, b->name) ||
+	    rename(b->part, path)) {
 		say(b, "err rename failed");
 		push_reset(b);
 		return;
 	}
 
 	printf("put %s: complete, %u bytes, crc %08x\n", b->name, total, crc);
-	sayf(b, "ok put %s %u %x", b->name, total, crc);
+	sayf(b, "ok put %s %u %08x", b->name, total, crc);
 	push_done(b, 1);
 }
 
@@ -438,41 +347,53 @@ static void cmd_end(struct bridge *b)
 static void on_req(struct bridge *b, const uint8_t *payload, uint32_t len)
 {
 	char line[FILEMQTT_LINE];
-	char word[FILEMQTT_NAME_MAX];
-	const char *p = line;
-	uint32_t i, n = 0;
+	char *p = line, *cmd, *name, *end;
 
-	for (i = 0; i < len && n < sizeof(line) - 1; i++) {
-		if (payload[i] == '\r' || payload[i] == '\n')
-			break;
-		line[n++] = (char) payload[i];
-	}
-	line[n] = 0;
+	if (len > sizeof(line) - 1)
+		len = sizeof(line) - 1;
+	memcpy(line, payload, len);
+	line[len] = 0;
 
-	filemqtt_word(&p, word, sizeof(word));
+	/* One line of request; a line end and anything after it is not it */
+	end = strchr(line, '\r');
+	if (end)
+		*end = 0;
+	end = strchr(line, '\n');
+	if (end)
+		*end = 0;
 
-	if (!strcmp(word, "list")) {
+	cmd = next_field(&p);
+	if (!cmd)
+		return;
+
+	if (!strcmp(cmd, "list")) {
 		cmd_list(b);
-	} else if (!strcmp(word, "get")) {
-		filemqtt_word(&p, word, sizeof(word));
-		cmd_get(b, word);
-	} else if (!strcmp(word, "put")) {
-		char name[FILEMQTT_NAME_MAX];
+	} else if (!strcmp(cmd, "get")) {
+		name = next_field(&p);
+		if (!name) {
+			say(b, "err bad name");
+			return;
+		}
+		cmd_get(b, name);
+	} else if (!strcmp(cmd, "put")) {
 		uint32_t size, crc;
 
-		filemqtt_word(&p, name, sizeof(name));
-		size = filemqtt_num(&p, 0);
-		crc = filemqtt_num(&p, 1);
+		name = next_field(&p);
+		if (!name || !filemqtt_next_number(&p, 10, &size) ||
+		    !filemqtt_next_number(&p, 16, &crc)) {
+			say(b, "err put wants <name> <size> <crc32>");
+			return;
+		}
 		cmd_put(b, name, size, crc);
-	} else if (!strcmp(word, "missing")) {
+	} else if (!strcmp(cmd, "missing")) {
 		cmd_missing(b);
-	} else if (!strcmp(word, "end")) {
+	} else if (!strcmp(cmd, "end")) {
 		cmd_end(b);
-	} else if (!strcmp(word, "abort")) {
+	} else if (!strcmp(cmd, "abort")) {
 		push_reset(b);
 		say(b, "ok abort");
-	} else if (word[0]) {
-		sayf(b, "err unknown command %s", word);
+	} else {
+		sayf(b, "err unknown command %s", cmd);
 	}
 }
 
@@ -484,7 +405,7 @@ static void on_chunk(struct bridge *b, const uint8_t *payload, uint32_t len)
 	if (b->fd < 0 || len < FILEMQTT_HDR)
 		return;
 
-	idx = filemqtt_be32(payload);
+	idx = get_unaligned_be32(payload);
 	n = len - FILEMQTT_HDR;
 	if (idx >= b->chunks || n > FILEMQTT_CHUNK)
 		return;
@@ -544,10 +465,8 @@ int main(int argc, char **argv, char **envp)
 	b.fd = -1;
 	b.max_size = DEFAULT_MAX_SIZE;
 
-#ifndef NOLIBC
 	/* Progress should show up in a log file or a pipe as it happens. */
 	setvbuf(stdout, NULL, _IONBF, 0);
-#endif
 
 	while ((opt = getopt(argc, argv, "rs:")) != -1) {
 		switch (opt) {
