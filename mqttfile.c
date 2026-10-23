@@ -319,13 +319,27 @@ static int do_put(struct client *c, const char *local, const char *remote)
 		}
 
 		p = line;
-		filemqtt_word(&p, word, sizeof(word));	/* "missing" */
 		filemqtt_word(&p, word, sizeof(word));
-		if (!strcmp(word, "none"))
-			break;
+		if (strcmp(word, "missing")) {
+			/*
+			 * Somebody else's reply: everything comes back on the
+			 * one topic, so a late one can land here. Ask again.
+			 */
+			continue;
+		}
+		/*
+		 * Peek at the next word without consuming it: it is either
+		 * "none" or the first index to resend.
+		 */
+		{
+			const char *peek = p;
+
+			filemqtt_word(&peek, word, sizeof(word));
+			if (!strcmp(word, "none"))
+				break;
+		}
 
 		/* re-walk the list, re-reading each wanted chunk */
-		p = line + 8;
 		for (;;) {
 			uint32_t want;
 			ssize_t n;
@@ -348,8 +362,6 @@ static int do_put(struct client *c, const char *local, const char *remote)
 			resent++;
 		}
 		printf("resent %u chunk%s\n", resent, resent == 1 ? "" : "s");
-		if (!resent)
-			break;
 	}
 
 	close(fd);
