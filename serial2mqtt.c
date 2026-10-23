@@ -28,6 +28,7 @@
 #include "config.h"
 #include "inc/printing.h"
 #include "inc/numbers.h"
+#include "inc/io.h"
 
 #define USAGE	"usage: %s [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data] " \
 		"<serial> <broker_ip> <topic>\n"
@@ -140,27 +141,17 @@ static int wait_for_dsr(int fd)
 
 static int write_all(int fd, const uint8_t *buf, uint32_t len, enum flow flow)
 {
-	uint32_t done = 0;
+	if (flow != FLOW_DTR)
+		return write_full(fd, buf, len);
 
-	while (done < len) {
-		uint32_t want = len - done;
-		ssize_t n;
+	/* A few bytes at a time, each lot once the far end says it is ready */
+	while (len) {
+		uint32_t n = len > DSR_CHUNK ? DSR_CHUNK : len;
 
-		if (flow == FLOW_DTR) {
-			if (wait_for_dsr(fd))
-				return -1;
-			if (want > DSR_CHUNK)
-				want = DSR_CHUNK;
-		}
-
-		n = write(fd, buf + done, want);
-
-		if (n > 0)
-			done += (uint32_t) n;
-		else if (n < 0 && errno == EINTR)
-			continue;
-		else
+		if (wait_for_dsr(fd) || write_full(fd, buf, n))
 			return -1;
+		buf += n;
+		len -= n;
 	}
 
 	return 0;

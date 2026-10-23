@@ -39,6 +39,8 @@
 
 #include "config.h"
 #include "inc/printing.h"
+#include "inc/io.h"
+#include "inc/pts.h"
 
 #define USAGE	"usage: %s [-m ascii|data] [-l <link>] <broker_ip> <topic>\n"
 
@@ -46,24 +48,6 @@
 #define BUF_SZ		512
 
 enum mode { MODE_ASCII, MODE_DATA };
-
-static int write_all(int fd, const uint8_t *buf, uint32_t len)
-{
-	uint32_t done = 0;
-
-	while (done < len) {
-		ssize_t n = write(fd, buf + done, len - done);
-
-		if (n > 0)
-			done += (uint32_t) n;
-		else if (n < 0 && errno == EINTR)
-			continue;
-		else
-			return -1;
-	}
-
-	return 0;
-}
 
 /* raw: nothing echoed, nothing translated, nothing waited for */
 static int make_raw(int fd)
@@ -84,32 +68,26 @@ static int make_raw(int fd)
 }
 
 /*
- * Open the master, unlock it, find out the slave's name and open that too
- * so the master never sees a hangup. Returns the master; the slave fd is
- * only kept open.
+ * Open the master, then the slave it was given too, so the master never sees
+ * a hangup. Returns the master; the slave fd is only kept open.
  */
 static int pty_open(char *name, size_t name_sz, int *slave_fd)
 {
-	int master, unlock = 0, n;
+	int master;
 
-	master = open("/dev/ptmx", O_RDWR | O_NOCTTY);
+	master = smolutils_pts_open(name, name_sz);
 	if (master < 0)
 		return -1;
 
-	if (ioctl(master, TIOCSPTLCK, &unlock) || ioctl(master, TIOCGPTN, &n)) {
-		close(master);
-		return -1;
-	}
-
-	snprintf(name, name_sz, "/dev/pts/%d", n);
-
 	*slave_fd = open(name, O_RDWR | O_NOCTTY);
 	if (*slave_fd < 0) {
+		error("cannot open %s: %d\n", name, errno);
 		close(master);
 		return -1;
 	}
 
 	if (make_raw(*slave_fd)) {
+		error("cannot make %s raw: %d\n", name, errno);
 		close(*slave_fd);
 		close(master);
 		return -1;
@@ -135,10 +113,10 @@ static void on_mqtt(struct smolmqtt *m, const struct smolmqtt_message *msg,
 		uint8_t out[SMOLMQTT_RXBUF_SZ];
 		uint32_t n = b64_decode(msg->payload, msg->payload_len, out);
 
-		if (write_all(b->master_fd, out, n))
+		if (write_full(b->master_fd, out, n))
 			error("write failed\n");
 	} else {
-		if (write_all(b->master_fd, msg->payload, msg->payload_len))
+		if (write_full(b->master_fd, msg->payload, msg->payload_len))
 			error("write failed\n");
 	}
 }
@@ -180,10 +158,8 @@ int main(int argc, char **argv, char **envp)
 	snprintf(clientid, sizeof(clientid), "mqtt2pty-%d", (int) getpid());
 
 	b.master_fd = pty_open(name, sizeof(name), &slave_fd);
-	if (b.master_fd < 0) {
-		error("failed to open a pty\n");
+	if (b.master_fd < 0)
 		return 1;
-	}
 
 	if (link) {
 		unlink(link);
