@@ -1,7 +1,7 @@
 # smolmqtt
 
-A single-header MQTT 3.1.1 client. One header, no dependencies. Builds
-against libc or as a fully static binary with nolibc + nolibc-extensions.
+A single-header MQTT 3.1.1 client on smolutils' helpers. Builds against
+libc or as a fully static binary with nolibc + nolibc-extensions.
 
 ## What
 
@@ -66,12 +66,15 @@ Everything is `static inline`; include it in one translation unit.
 ## Building it
 
 Both builds come from `smolcommon.mk`, a copy of smolutils' one; keep the two
-in sync.
+in sync. The helpers are smolutils' too: its `inc/` does the option parsing,
+the printing and the write loops, so a checkout of
+[smolutils](https://github.com/fifteenhex/smolutils) has to be beside this
+or named with `SMOLUTILSDIR`.
 
 `make` builds all seven against the host's libc, into `<prog>.libc.elf`:
 
 ```
-make
+make SMOLUTILSDIR=/path/to/smolutils
 ./smolmqtt_test.libc.elf 192.168.3.2
 ```
 
@@ -80,15 +83,16 @@ nolibc-extensions, plus `NOPIE=1` for a nolibc that cannot relocate itself:
 
 ```
 make SMOL_ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- NOPIE=1 \
+     SMOLUTILSDIR=/path/to/smolutils \
      NOLIBCDIR=/path/to/linux/tools/include/nolibc \
      NOLIBCEXTDIR=/path/to/nolibc-extensions
 ```
 
 `SMOL_ARCH` is one of `x86_64`, `cortexa7`, `cortexa9`, `68000`, `68030`,
-`68040`, `68060`. Output is `<prog>.<arch>.elf`, stripped, with the symbols in
-`<prog>.<arch>.elf.dbg` beside it, so one tree holds several targets. Add
-`UAPIDIR=/path/to/uapi/include` when the target's kernel headers are not this
-machine's. `V=1` prints the command lines.
+`68040`, `68060`, `sh4`. Output is `<prog>.<arch>.elf`, stripped, with the
+symbols in `<prog>.<arch>.elf.dbg` beside it, so one tree holds several
+targets. Add `UAPIDIR=/path/to/uapi/include` when the target's kernel headers
+are not this machine's. `V=1` prints the command lines.
 
 ## DTR/DSR flow control
 

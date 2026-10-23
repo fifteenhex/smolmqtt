@@ -17,8 +17,11 @@ jobs:
           sudo systemctl restart mosquitto
           sleep 1
 
+      - name: Fetch smolutils
+        run: git clone --depth 1 https://github.com/fifteenhex/smolutils.git
+
       - name: Build against the libc here
-        run: make
+        run: make SMOLUTILSDIR="$PWD/smolutils"
 
       - name: Roundtrip test against the local broker
         run: ./smolmqtt_test.libc.elf 127.0.0.1
@@ -41,8 +44,9 @@ jobs:
           cd tarwak && meson setup build && meson compile -C build
 
       # Sparse, since nolibc is a handful of headers in a very large tree
-      - name: Fetch nolibc and nolibc-extensions
+      - name: Fetch smolutils, nolibc and nolibc-extensions
         run: |
+          git clone --depth 1 https://github.com/fifteenhex/smolutils.git
           git clone --depth 1 --filter=blob:none --sparse --branch v7.2 \
             https://github.com/torvalds/linux.git
           git -C linux sparse-checkout set tools/include/nolibc
@@ -53,6 +57,7 @@ jobs:
       - name: Build the static binaries and the rootfs tarball
         run: |
           make SMOL_ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- NOPIE=1 \
+               SMOLUTILSDIR="$PWD/smolutils" \
                NOLIBCDIR="$PWD/linux/tools/include/nolibc" \
                NOLIBCEXTDIR="$PWD/nolibc-extensions" \
                TARWAK="$PWD/tarwak/build/tarwak" \
