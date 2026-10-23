@@ -31,6 +31,14 @@
 #include <time.h>
 #endif
 
+#include "config.h"
+#include "inc/printing.h"
+
+#define USAGE	"usage: %s [-t seconds] [-d usec] <broker_ip> <topic> <op>\n" \
+		"       list\n" \
+		"       get <remote> [local]\n" \
+		"       put <local> [remote]\n"
+
 #define GET_RETRIES	3
 
 /* Default pause between chunks; at 4 KiB a chunk still megabytes a second */
@@ -167,7 +175,7 @@ static int do_list(struct client *c)
 		const char *line = wait_line(c);
 
 		if (!line) {
-			printf("timed out\n");
+			error("timed out\n");
 			return 1;
 		}
 		printf("%s\n", line);
@@ -191,7 +199,7 @@ static int do_get(struct client *c, const char *remote, const char *local)
 
 		c->fd = open(local, O_RDWR | O_CREAT | O_TRUNC, 0644);
 		if (c->fd < 0) {
-			printf("cannot create %s\n", local);
+			error("cannot create %s\n", local);
 			return 1;
 		}
 		c->chunks = 0;
@@ -204,13 +212,13 @@ static int do_get(struct client *c, const char *remote, const char *local)
 
 		line = wait_line(c);
 		if (!line) {
-			printf("timed out waiting for the bridge\n");
+			error("timed out waiting for the bridge\n");
 			close(c->fd);
 			c->fd = -1;
 			return 1;
 		}
 		if (is_err(line)) {
-			printf("%s\n", line);
+			error("%s\n", line);
 			close(c->fd);
 			c->fd = -1;
 			return 1;
@@ -255,7 +263,7 @@ static int do_get(struct client *c, const char *remote, const char *local)
 			return 0;
 		}
 
-		printf("transfer incomplete (%u/%u bytes, crc %08x vs %08x)%s\n",
+		error("transfer incomplete (%u/%u bytes, crc %08x vs %08x)%s\n",
 		       total, size, mycrc, crc,
 		       attempt + 1 < GET_RETRIES ? ", retrying" : "");
 	}
@@ -273,7 +281,7 @@ static int do_put(struct client *c, const char *local, const char *remote)
 
 	fd = open(local, O_RDONLY);
 	if (fd < 0) {
-		printf("cannot open %s\n", local);
+		error("cannot open %s\n", local);
 		return 1;
 	}
 	for (;;) {
@@ -290,12 +298,12 @@ static int do_put(struct client *c, const char *local, const char *remote)
 
 	line = wait_line(c);
 	if (!line) {
-		printf("timed out waiting for the bridge\n");
+		error("timed out waiting for the bridge\n");
 		close(fd);
 		return 1;
 	}
 	if (is_err(line)) {
-		printf("%s\n", line);
+		error("%s\n", line);
 		close(fd);
 		return 1;
 	}
@@ -316,7 +324,7 @@ static int do_put(struct client *c, const char *local, const char *remote)
 		filemqtt_put_be32(chunk, idx++);
 		if (smolmqtt_publish(&c->m, c->t_in, chunk,
 				     FILEMQTT_HDR + (uint32_t) n, 0, false)) {
-			printf("publish failed at chunk %u\n", idx - 1);
+			error("publish failed at chunk %u\n", idx - 1);
 			close(fd);
 			return 1;
 		}
@@ -330,12 +338,12 @@ static int do_put(struct client *c, const char *local, const char *remote)
 		pub_req(c, "missing");
 		line = wait_line(c);
 		if (!line) {
-			printf("timed out asking for missing chunks\n");
+			error("timed out asking for missing chunks\n");
 			close(fd);
 			return 1;
 		}
 		if (is_err(line)) {
-			printf("%s\n", line);
+			error("%s\n", line);
 			close(fd);
 			return 1;
 		}
@@ -392,21 +400,16 @@ static int do_put(struct client *c, const char *local, const char *remote)
 	pub_req(c, "end");
 	line = wait_line(c);
 	if (!line) {
-		printf("timed out waiting for the commit\n");
+		error("timed out waiting for the commit\n");
+		return 1;
+	}
+	if (is_err(line)) {
+		error("%s\n", line);
 		return 1;
 	}
 	printf("%s\n", line);
 
-	return is_err(line) ? 1 : 0;
-}
-
-static void usage(const char *argv0)
-{
-	printf("usage: %s [-t seconds] [-d usec] <broker_ip> <topic> list\n", argv0);
-	printf("       %s [-t seconds] [-d usec] <broker_ip> <topic> get <remote> [local]\n",
-	       argv0);
-	printf("       %s [-t seconds] [-d usec] <broker_ip> <topic> put <local> [remote]\n",
-	       argv0);
+	return 0;
 }
 
 static const char *basename_of(const char *path)
@@ -443,13 +446,13 @@ int main(int argc, char **argv, char **envp)
 			put_delay_us = (unsigned long) atoi(optarg);
 			break;
 		default:
-			usage(argv[0]);
+			usage(USAGE, argv[0]);
 			return 1;
 		}
 	}
 
 	if (argc - optind < 3) {
-		usage(argv[0]);
+		usage(USAGE, argv[0]);
 		return 1;
 	}
 	broker = argv[optind];
@@ -464,7 +467,7 @@ int main(int argc, char **argv, char **envp)
 
 	ret = smolmqtt_connect(&c.m, broker, 1883, clientid);
 	if (ret) {
-		printf("connect failed: %d\n", ret);
+		error("connect failed: %d\n", ret);
 		return 1;
 	}
 
@@ -472,7 +475,7 @@ int main(int argc, char **argv, char **envp)
 	if (!ret)
 		ret = smolmqtt_subscribe(&c.m, c.t_out, 0);
 	if (ret) {
-		printf("subscribe failed: %d\n", ret);
+		error("subscribe failed: %d\n", ret);
 		return 1;
 	}
 
@@ -491,7 +494,7 @@ int main(int argc, char **argv, char **envp)
 
 		rc = do_put(&c, local, remote);
 	} else {
-		usage(argv[0]);
+		usage(USAGE, argv[0]);
 		rc = 1;
 	}
 

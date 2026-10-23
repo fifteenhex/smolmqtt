@@ -37,6 +37,11 @@
 
 #include <asm/termbits.h>
 
+#include "config.h"
+#include "inc/printing.h"
+
+#define USAGE	"usage: %s [-m ascii|data] [-l <link>] <broker_ip> <topic>\n"
+
 /* A read from the pty; must base64 to under SMOLMQTT_RXBUF_SZ's worth */
 #define BUF_SZ		512
 
@@ -131,17 +136,11 @@ static void on_mqtt(struct smolmqtt *m, const struct smolmqtt_message *msg,
 		uint32_t n = b64_decode(msg->payload, msg->payload_len, out);
 
 		if (write_all(b->master_fd, out, n))
-			printf("write failed\n");
+			error("write failed\n");
 	} else {
 		if (write_all(b->master_fd, msg->payload, msg->payload_len))
-			printf("write failed\n");
+			error("write failed\n");
 	}
-}
-
-static void usage(const char *argv0)
-{
-	printf("usage: %s [-m ascii|data] [-l <link>] <broker_ip> <topic>\n",
-	       argv0);
 }
 
 int main(int argc, char **argv, char **envp)
@@ -164,13 +163,13 @@ int main(int argc, char **argv, char **envp)
 			link = optarg;
 			break;
 		default:
-			usage(argv[0]);
+			usage(USAGE, argv[0]);
 			return 1;
 		}
 	}
 
 	if (argc - optind != 2) {
-		usage(argv[0]);
+		usage(USAGE, argv[0]);
 		return 1;
 	}
 	broker = argv[optind];
@@ -182,27 +181,27 @@ int main(int argc, char **argv, char **envp)
 
 	b.master_fd = pty_open(name, sizeof(name), &slave_fd);
 	if (b.master_fd < 0) {
-		printf("failed to open a pty\n");
+		error("failed to open a pty\n");
 		return 1;
 	}
 
 	if (link) {
 		unlink(link);
 		if (symlink(name, link)) {
-			printf("failed to link %s to %s\n", link, name);
+			error("failed to link %s to %s\n", link, name);
 			return 1;
 		}
 	}
 
 	ret = smolmqtt_connect(&m, broker, 1883, clientid);
 	if (ret) {
-		printf("connect failed: %d\n", ret);
+		error("connect failed: %d\n", ret);
 		return 1;
 	}
 
 	ret = smolmqtt_subscribe(&m, topic_rx, 0);
 	if (ret) {
-		printf("subscribe failed: %d\n", ret);
+		error("subscribe failed: %d\n", ret);
 		return 1;
 	}
 

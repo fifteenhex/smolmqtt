@@ -25,6 +25,12 @@
 
 #include <asm/termbits.h>
 
+#include "config.h"
+#include "inc/printing.h"
+
+#define USAGE	"usage: %s [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data] " \
+		"<serial> <broker_ip> <topic>\n"
+
 #define BUF_SZ	512
 
 /* Linux termios has no DTR/DSR flow control, so it is done by hand below.
@@ -99,7 +105,7 @@ static int serial_open(const char *dev, int baud, int databits, char parity,
 		 * pty has no modem lines to raise.
 		 */
 		if (ioctl(fd, TIOCMBIS, &bits))
-			printf("cannot assert DTR/RTS on %s\n", dev);
+			error("cannot assert DTR/RTS on %s\n", dev);
 	}
 
 	return fd;
@@ -178,18 +184,12 @@ static void on_mqtt(struct smolmqtt *m, const struct smolmqtt_message *msg,
 		uint32_t n = b64_decode(msg->payload, msg->payload_len, out);
 
 		if (write_all(b->serial_fd, out, n, b->flow))
-			printf("write failed\n");
+			error("write failed\n");
 	} else {
 		if (write_all(b->serial_fd, msg->payload, msg->payload_len,
 			      b->flow))
-			printf("write failed\n");
+			error("write failed\n");
 	}
-}
-
-static void usage(const char *argv0)
-{
-	printf("usage: %s [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data] <serial> <broker_ip> <topic>\n",
-	       argv0);
 }
 
 int main(int argc, char **argv, char **envp)
@@ -224,13 +224,13 @@ int main(int argc, char **argv, char **envp)
 			b.mode = optarg[0] == 'd' ? MODE_DATA : MODE_ASCII;
 			break;
 		default:
-			usage(argv[0]);
+			usage(USAGE, argv[0]);
 			return 1;
 		}
 	}
 
 	if (argc - optind != 3) {
-		usage(argv[0]);
+		usage(USAGE, argv[0]);
 		return 1;
 	}
 	serial_dev = argv[optind];
@@ -244,19 +244,19 @@ int main(int argc, char **argv, char **envp)
 	b.serial_fd = serial_open(serial_dev, baud, databits, parity, stopbits,
 				  b.flow);
 	if (b.serial_fd < 0) {
-		printf("failed to open %s\n", serial_dev);
+		error("failed to open %s\n", serial_dev);
 		return 1;
 	}
 
 	ret = smolmqtt_connect(&m, broker, 1883, clientid);
 	if (ret) {
-		printf("connect failed: %d\n", ret);
+		error("connect failed: %d\n", ret);
 		return 1;
 	}
 
 	ret = smolmqtt_subscribe(&m, topic_tx, 0);
 	if (ret) {
-		printf("subscribe failed: %d\n", ret);
+		error("subscribe failed: %d\n", ret);
 		return 1;
 	}
 

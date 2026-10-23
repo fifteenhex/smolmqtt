@@ -12,6 +12,11 @@
 #include <unistd.h>
 #endif
 
+#include "config.h"
+#include "inc/printing.h"
+
+#define USAGE	"usage: %s <broker_ip> <topic>\n"
+
 static void on_msg(struct smolmqtt *m, const struct smolmqtt_message *msg,
 		   void *priv)
 {
@@ -44,7 +49,7 @@ int main(int argc, char **argv, char **envp)
 	(void)envp;
 
 	if (argc != 3) {
-		printf("usage: %s <broker_ip> <topic>\n", argv[0]);
+		usage(USAGE, argv[0]);
 		return 1;
 	}
 
@@ -52,13 +57,13 @@ int main(int argc, char **argv, char **envp)
 
 	ret = smolmqtt_connect(&m, argv[1], 1883, clientid);
 	if (ret) {
-		printf("connect failed: %d\n", ret);
+		error("connect failed: %d\n", ret);
 		return 1;
 	}
 
 	ret = smolmqtt_subscribe(&m, argv[2], 0);
 	if (ret) {
-		printf("subscribe failed: %d\n", ret);
+		error("subscribe failed: %d\n", ret);
 		smolmqtt_disconnect(&m);
 		return 1;
 	}
@@ -67,7 +72,7 @@ int main(int argc, char **argv, char **envp)
 	for (;;) {
 		ret = smolmqtt_poll(&m, on_msg, NULL);
 		if (ret) {
-			printf("poll failed: %d\n", ret);
+			error("poll failed: %d\n", ret);
 			break;
 		}
 	}

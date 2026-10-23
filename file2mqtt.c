@@ -30,6 +30,11 @@
 #include <errno.h>
 #endif
 
+#include "config.h"
+#include "inc/printing.h"
+
+#define USAGE	"usage: %s [-r] [-s maxsize] <directory> <broker_ip> <topic>\n"
+
 #define DEFAULT_MAX_SIZE	(32u * 1024 * 1024)
 
 /* nolibc has no rename(); renameat2 is the syscall behind it everywhere we
@@ -406,7 +411,7 @@ static void cmd_end(struct bridge *b)
 	if (total != b->size || crc != b->crc) {
 		sayf(b, "err mismatch: got %u bytes crc %x, wanted %u %x",
 		     total, crc, b->size, b->crc);
-		printf("put %s FAILED: got %u/%x wanted %u/%x\n", b->name,
+		error("put %s FAILED: got %u/%x wanted %u/%x\n", b->name,
 		       total, crc, b->size, b->crc);
 		push_reset(b);
 		return;
@@ -523,12 +528,6 @@ static void on_mqtt(struct smolmqtt *m, const struct smolmqtt_message *msg,
 		on_chunk(c->b, msg->payload, msg->payload_len);
 }
 
-static void usage(const char *argv0)
-{
-	printf("usage: %s [-r] [-s maxsize] <directory> <broker_ip> <topic>\n",
-	       argv0);
-}
-
 int main(int argc, char **argv, char **envp)
 {
 	char t_req[128], t_rsp[128], t_in[128], t_out[128], clientid[64];
@@ -557,13 +556,13 @@ int main(int argc, char **argv, char **envp)
 			b.max_size = (uint32_t) atoi(optarg);
 			break;
 		default:
-			usage(argv[0]);
+			usage(USAGE, argv[0]);
 			return 1;
 		}
 	}
 
 	if (argc - optind != 3) {
-		usage(argv[0]);
+		usage(USAGE, argv[0]);
 		return 1;
 	}
 	dir = argv[optind];
@@ -583,7 +582,7 @@ int main(int argc, char **argv, char **envp)
 
 	ret = smolmqtt_connect(&m, broker, 1883, clientid);
 	if (ret) {
-		printf("connect failed: %d\n", ret);
+		error("connect failed: %d\n", ret);
 		return 1;
 	}
 
@@ -591,7 +590,7 @@ int main(int argc, char **argv, char **envp)
 	if (!ret)
 		ret = smolmqtt_subscribe(&m, t_in, 0);
 	if (ret) {
-		printf("subscribe failed: %d\n", ret);
+		error("subscribe failed: %d\n", ret);
 		return 1;
 	}
 
