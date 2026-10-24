@@ -4,10 +4,12 @@
  * <topic>/rx, and messages on <topic>/tx are written to the port.
  *
  *	serial2mqtt [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data]
- *		<serial> <broker_ip> <topic>
+ *		[-d ms] <serial> <broker_ip> <topic>
  *
  * ascii mode passes the bytes through as-is; data mode base64-encodes each
  * way, so arbitrary binary survives.
+ *
+ * -d paces the way to the port: one character, then that many milliseconds.
  */
 #include "smolmqtt.h"
 #include "base64.h"
@@ -20,6 +22,7 @@
 #include <getopt.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <time.h>
 #include <sys/ioctl.h>
 #endif
 
@@ -31,7 +34,7 @@
 #include "inc/io.h"
 
 #define USAGE	"usage: %s [-b baud] [-c 8N1] [-f none|dtr] [-m ascii|data] " \
-		"<serial> <broker_ip> <topic>\n"
+		"[-d ms] <serial> <broker_ip> <topic>\n"
 
 #define BUF_SZ	512
 
@@ -139,8 +142,32 @@ static int wait_for_dsr(int fd)
 	return -1;
 }
 
-static int write_all(int fd, const uint8_t *buf, uint32_t len, enum flow flow)
+/* A character then a pause, the DSR wait still comes before each one */
+static int write_paced(int fd, const uint8_t *buf, uint32_t len,
+		       enum flow flow, unsigned int pace_ms)
 {
+	struct timespec ts = {
+		.tv_sec = pace_ms / 1000,
+		.tv_nsec = (pace_ms % 1000) * 1000000,
+	};
+
+	while (len--) {
+		if (flow == FLOW_DTR && wait_for_dsr(fd))
+			return -1;
+		if (write_full(fd, buf++, 1))
+			return -1;
+		nanosleep(&ts, NULL);
+	}
+
+	return 0;
+}
+
+static int write_all(int fd, const uint8_t *buf, uint32_t len, enum flow flow,
+		     unsigned int pace_ms)
+{
+	if (pace_ms)
+		return write_paced(fd, buf, len, flow, pace_ms);
+
 	if (flow != FLOW_DTR)
 		return write_full(fd, buf, len);
 
@@ -161,6 +188,7 @@ struct bridge {
 	int serial_fd;
 	enum mode mode;
 	enum flow flow;
+	unsigned int pace_ms;
 };
 
 /* MQTT -> serial */
@@ -175,11 +203,11 @@ static void on_mqtt(struct smolmqtt *m, const struct smolmqtt_message *msg,
 		uint8_t out[BUF_SZ];
 		uint32_t n = b64_decode(msg->payload, msg->payload_len, out);
 
-		if (write_all(b->serial_fd, out, n, b->flow))
+		if (write_all(b->serial_fd, out, n, b->flow, b->pace_ms))
 			error("write failed\n");
 	} else {
 		if (write_all(b->serial_fd, msg->payload, msg->payload_len,
-			      b->flow))
+			      b->flow, b->pace_ms))
 			error("write failed\n");
 	}
 }
@@ -188,7 +216,7 @@ int main(int argc, char **argv, char **envp)
 {
 	struct bridge b = { .mode = MODE_ASCII };
 	struct smolmqtt m = { 0 };
-	int baud = 115200, databits = 8, stopbits = 1;
+	int baud = 115200, databits = 8, stopbits = 1, pace = 0;
 	char parity = 'N';
 	const char *serial_dev, *broker, *base_topic;
 	char topic_rx[128], topic_tx[128], clientid[64];
@@ -197,7 +225,7 @@ int main(int argc, char **argv, char **envp)
 
 	(void)envp;
 
-	while ((opt = getopt(argc, argv, "b:c:f:m:")) != -1) {
+	while ((opt = getopt(argc, argv, "b:c:d:f:m:")) != -1) {
 		switch (opt) {
 		case 'b':
 			if (!parse_int_range(optarg, 10, 1, 4000000, &baud)) {
@@ -215,6 +243,13 @@ int main(int argc, char **argv, char **envp)
 			databits = optarg[0] - '0';
 			parity = optarg[1];
 			stopbits = optarg[2] - '0';
+			break;
+		case 'd':
+			if (!parse_int_range(optarg, 10, 0, 10000, &pace)) {
+				error("not a delay in ms: %s\n", optarg);
+				return 1;
+			}
+			b.pace_ms = pace;
 			break;
 		case 'f':
 			b.flow = optarg[0] == 'd' ? FLOW_DTR : FLOW_NONE;
@@ -259,10 +294,13 @@ int main(int argc, char **argv, char **envp)
 		return 1;
 	}
 
-	printf("bridging %s <-> %s (rx=%s tx=%s, %s mode, %s flow control)\n",
+	printf("bridging %s <-> %s (rx=%s tx=%s, %s mode, %s flow control",
 	       serial_dev, broker, topic_rx, topic_tx,
 	       b.mode == MODE_DATA ? "data" : "ascii",
 	       b.flow == FLOW_DTR ? "dtr/dsr" : "no");
+	if (b.pace_ms)
+		printf(", %u ms a character", b.pace_ms);
+	printf(")\n");
 
 	fds[0].fd = b.serial_fd;
 	fds[0].events = POLLIN;
