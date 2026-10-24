@@ -1,4 +1,4 @@
-PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub serial2mqtt mqtt2pty file2mqtt mqttfile
+PROGS := smolmqtt_test smolmqtt_pub smolmqtt_sub serial2mqtt mqtt2pty file2mqtt mqttfile gpio2mqtt
 
 # The helpers come from smolutils (config.h and inc/*.h). Pass SMOLUTILSDIR
 # with a checkout; a sibling directory is the default.
