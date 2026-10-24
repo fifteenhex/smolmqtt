@@ -13,7 +13,8 @@
 					"smolmqtt_test": { },
 					"serial2mqtt": { },
 					"mqtt2pty": { },
-					"file2mqtt": { }
+					"file2mqtt": { },
+					"gpio2mqtt": { }
 				}
 			}
 		}
