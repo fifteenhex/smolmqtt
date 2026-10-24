@@ -62,6 +62,13 @@ Everything is `static inline`; include it in one translation unit.
   mode base64-encodes each way so arbitrary binary survives. `-f dtr`
   honours the DTR/DSR handshake, for devices that hold the line low to say
   "stop sending".
+- `gpio2mqtt [-l] [-i <offset>]... [-o <offset>[=<value>]]... <chip>
+  <broker_ip> <topic>` -- bridges gpio lines to MQTT: every edge on an `-i`
+  input is published to `<topic>/in/<offset>` as `0` or `1`, retained, and
+  the inputs are published once at start so the state is there before the
+  first edge. A `0` or `1` sent to `<topic>/out/<offset>` drives an `-o`
+  output, which starts at `<value>` (default 0). `-l` makes every line
+  active low. `<chip>` is `gpiochip<n>`, `<n>` or a path.
 
 ## Building it
 
